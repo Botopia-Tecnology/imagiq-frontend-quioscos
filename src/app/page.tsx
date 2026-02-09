@@ -75,7 +75,7 @@ export default async function HomePage() {
 
       <HomePageClient>
         <div id="main-page" className="min-h-screen md:mr-0 md:overflow-x-clip">
-          <DynamicBanner placement="home-3" className="mt-6 md:mt-8 lg:mt-12">
+          <DynamicBanner placement="home-3" fullBleedMobile className="md:mt-8 lg:mt-12">
             <AITVsBanner />
           </DynamicBanner>
 

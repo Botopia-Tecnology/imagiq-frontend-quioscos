@@ -33,6 +33,7 @@ interface DynamicBannerProps {
   trackPlayedVideos?: boolean;
   mockBanner?: Banner | null; // Datos mock para pruebas sin API
   isMobile?: boolean; // Forzar vista mobile para testing
+  fullBleedMobile?: boolean; // En mobile: ocupa todo el ancho y se mete detrás del header
 }
 
 /**
@@ -362,6 +363,7 @@ export default function DynamicBannerClean({
   trackPlayedVideos = false,
   mockBanner,
   isMobile: forceMobileView,
+  fullBleedMobile = false,
 }: Readonly<DynamicBannerProps>) {
   // Si hay mockBanner, usarlo en lugar del API
   const { banners: apiBanners, loading } = useDynamicBanner(placement || '');
@@ -527,8 +529,8 @@ export default function DynamicBannerClean({
   const hasCTAsInBlocks = contentBlocks.some(block => block.cta);
 
   const content = (
-    <div className={`relative w-full overflow-hidden max-w-[1440px] mx-auto ${className}`}>
-      <div className="relative w-full min-h-[700px] md:min-h-[500px] lg:min-h-[800px] rounded-lg overflow-hidden">
+    <div className={`relative w-full overflow-hidden ${fullBleedMobile ? '-mt-[64px] md:mt-0 md:max-w-[1440px] md:mx-auto' : 'max-w-[1440px] mx-auto'} ${className}`}>
+      <div className={`relative w-full min-h-[700px] md:min-h-[500px] lg:min-h-[800px] overflow-hidden ${fullBleedMobile ? 'md:rounded-lg' : 'rounded-lg'}`}>
         {showOverlay && <div className="absolute inset-0 bg-black/30 z-10" />}
 
         {/* Todos los banners en posición absoluta con transición fade + slide */}
