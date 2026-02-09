@@ -15,8 +15,6 @@ import SEO from "@/components/SEO";
 import { CTASection } from "@/components/sections/CTASection";
 
 // Client Components (necesitan interactividad)
-import HeroSection from "@/components/sections/HeroSection";
-import GalaxyShowcaseBanner from "@/components/sections/GalaxyShowcaseBanner/index";
 import AITVsBanner from "@/components/sections/AITVsBanner";
 import DynamicBanner from "@/components/banners/DynamicBannerClean";
 import TVProductsGrid from "@/components/sections/TVProductsGrid";
@@ -97,12 +95,6 @@ export default async function HomePage() {
 
       <HomePageClient>
         <div id="main-page" className="min-h-screen md:mr-0 md:overflow-x-clip">
-          <HeroSection />
-
-          <DynamicBanner placement="home-2" className="mt-6 md:mt-8 lg:mt-12">
-            <GalaxyShowcaseBanner />
-          </DynamicBanner>
-
           {/* ProductShowcase con Suspense */}
           <Suspense fallback={<ProductShowcaseSkeleton />}>
             <ProductShowcase initialProducts={mappedProducts} />
