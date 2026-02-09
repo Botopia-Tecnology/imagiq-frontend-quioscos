@@ -1,0 +1,597 @@
+"use client";
+
+import { use, useEffect, useState, useCallback, useRef } from "react";
+
+// Importación de iconos
+import { apiClient, type ApiResponse } from "@/lib/api";
+import { OrderDetails, EnvioEvento, ProductoDetalle, TiendaInfo, DetalleEnvio } from "../interfaces/types.d";
+import {
+  LoadingSpinner,
+  ErrorView,
+  ShippingOrderView,
+} from "../components";
+import { ImagiqShippingView } from "@/app/imagiq-tracking/components/ImagiqShippingView";
+import { PickupShippingView } from "@/app/pickup-tracking/components/PickupShippingView";
+import { addBusinessDays, getNextBusinessDay } from "@/lib/dateUtils";
+
+export default function TrackingService({
+  params,
+}: Readonly<{ params: Promise<{ orderId: string }> }>) {
+  const [orderNumber, setOrderNumber] = useState("...");
+  const [estimatedInitDate, setEstimatedInitDate] = useState("0000-00-00");
+  const [estimatedFinalDate, setEstimatedFinalDate] = useState("000-00-00");
+  const [trackingSteps, setTrackingSteps] = useState<EnvioEvento[]>([]);
+  const [isLoading, setIsLoading] = useState(true);
+  const [pdfBase64, setPdfBase64] = useState<string>("");
+  const [metodoEnvio, setMetodoEnvio] = useState<string>("");
+  const [medioPago, setMedioPago] = useState<number | undefined>(undefined);
+  const [horaRecogida, setHoraRecogida] = useState<string>("");
+  const [token, setToken] = useState<string>("");
+
+  const [fechaCreacion, setFechaCreacion] = useState<string>("");
+  // Estado para manejar múltiples envíos (Coordinadora)
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const [envios, setEnvios] = useState<any[]>([]);
+  const [selectedEnvioIndex, setSelectedEnvioIndex] = useState(0);
+
+  const [productos, setProductos] = useState<ProductoDetalle[]>([]);
+  const [tiendaInfo, setTiendaInfo] = useState<TiendaInfo | undefined>(undefined);
+  const [direccionEntrega, setDireccionEntrega] = useState<string>("");
+  const [ciudadEntrega, setCiudadEntrega] = useState<string>("");
+  const [nombreDestinatario, setNombreDestinatario] = useState<string>("");
+  const [telefonoDestinatario, setTelefonoDestinatario] = useState<string>("");
+  const [latitudDestino, setLatitudDestino] = useState<number | undefined>(undefined);
+  const [longitudDestino, setLongitudDestino] = useState<number | undefined>(undefined);
+  const [error, setError] = useState<string | null>(null);
+  const pathParams = use(params);
+
+  // Ref para cancelar peticiones anteriores y evitar race conditions
+  const guideChangeAbortRef = useRef<AbortController | null>(null);
+  const currentGuideRef = useRef<string | null>(null);
+  // Ref para tracking del último índice procesado y evitar re-ejecuciones
+  const lastProcessedIndexRef = useRef<number>(-1);
+
+  // Helper functions
+  const formatDate = (
+    dateString: string,
+    options?: Intl.DateTimeFormatOptions
+  ) => {
+    try {
+      return new Date(dateString).toLocaleString("es-ES", {
+        weekday: "long",
+        month: "long",
+        day: "numeric",
+        ...options,
+      });
+    } catch {
+      return dateString;
+    }
+  };
+
+  const updateCoordinadoraView = useCallback(async (envio: Partial<DetalleEnvio>, fechaBase: string) => {
+    if (!envio) return;
+
+    // Usar número de guía si existe, si no fallback
+    const guia = envio.numero_guia || "...";
+    // Actualizamos orderNumber para que el header muestre la guía si así se desea
+    setOrderNumber(guia);
+
+    // Logic de fechas
+    if (envio.tiempo_entrega_estimado && fechaBase) {
+      const f = new Date(fechaBase);
+      const dias = Number.parseInt(String(envio.tiempo_entrega_estimado));
+
+      f.setDate(f.getDate() + dias);
+      setEstimatedInitDate(formatDate(f.toISOString()));
+
+      f.setDate(f.getDate() + dias + 2);
+      setEstimatedFinalDate(formatDate(f.toISOString()));
+    }
+
+    // Obtener eventos específicos por número de guía si existe
+    if (envio.numero_guia) {
+      try {
+        const eventosResponse = await apiClient.get<{
+          success: boolean;
+          data: EnvioEvento[];
+          total: number;
+        }>(`/api/deliveries/eventos/guia/${envio.numero_guia}`);
+        
+        if (eventosResponse.data.success && eventosResponse.data.data) {
+          setTrackingSteps(eventosResponse.data.data);
+        } else {
+          // Fallback a eventos genéricos si no hay eventos específicos
+          setTrackingSteps(envio.eventos || []);
+        }
+      } catch (error) {
+        console.warn(`Error obteniendo eventos para guía ${envio.numero_guia}:`, error);
+        // Fallback a eventos genéricos en caso de error
+        setTrackingSteps(envio.eventos || []);
+      }
+    } else {
+      // Si no hay número de guía, usar eventos genéricos
+      setTrackingSteps(envio.eventos || []);
+    }
+
+    setPdfBase64(envio.pdf_base64 || "");
+  }, []);
+
+  // Función para obtener eventos específicos por número de guía
+  const handleGuideChange = useCallback(async (numeroGuia: string) => {
+    if (!numeroGuia) return;
+
+    // Cancelar petición anterior si existe
+    if (guideChangeAbortRef.current) {
+      guideChangeAbortRef.current.abort();
+    }
+
+    // Crear nuevo AbortController para esta petición
+    const abortController = new AbortController();
+    guideChangeAbortRef.current = abortController;
+    currentGuideRef.current = numeroGuia;
+
+    try {
+      const eventosResponse = await apiClient.get<{
+        success: boolean;
+        data: EnvioEvento[];
+        total: number;
+      }>(`/api/deliveries/eventos/guia/${numeroGuia}`, {
+        signal: abortController.signal,
+      });
+
+      // Verificar que esta sigue siendo la guía actual (evitar race condition)
+      if (currentGuideRef.current !== numeroGuia) {
+        return;
+      }
+
+      if (eventosResponse.data.success && eventosResponse.data.data) {
+        console.log(`📊 Eventos para guía ${numeroGuia}:`, eventosResponse.data.data.length, eventosResponse.data.data);
+        setTrackingSteps(eventosResponse.data.data);
+      }
+
+      // También buscar el PDF correspondiente a esta guía en los envíos
+      const envioCorrespondiente = envios.find(envio => envio.numero_guia === numeroGuia);
+      if (envioCorrespondiente && envioCorrespondiente.pdf_base64) {
+        setPdfBase64(envioCorrespondiente.pdf_base64);
+      }
+    } catch (error) {
+      // Ignorar errores de cancelación
+      if (error instanceof Error && error.name === 'AbortError') {
+        return;
+      }
+      console.warn(`Error obteniendo eventos para guía ${numeroGuia}:`, error);
+    }
+  }, [envios]);
+
+  // Efecto para actualizar la vista cuando cambia la selección de envío
+  // OPTIMIZACIÓN: Separar actualizaciones síncronas (UI) de asíncronas (API)
+  useEffect(() => {
+    if (envios.length > 0 && fechaCreacion) {
+      const envio = envios[selectedEnvioIndex];
+      if (!envio) return;
+
+      // 1. Actualizaciones SÍNCRONAS inmediatas (para respuesta rápida de UI)
+      const guia = envio.numero_guia || "...";
+      setOrderNumber(guia);
+      setPdfBase64(envio.pdf_base64 || "");
+
+      // Actualizar fechas estimadas inmediatamente
+      if (envio.tiempo_entrega_estimado && fechaCreacion) {
+        const f = new Date(fechaCreacion);
+        const dias = Number.parseInt(String(envio.tiempo_entrega_estimado));
+        f.setDate(f.getDate() + dias);
+        setEstimatedInitDate(formatDate(f.toISOString()));
+        f.setDate(f.getDate() + dias + 2);
+        setEstimatedFinalDate(formatDate(f.toISOString()));
+      }
+
+      // Usar eventos locales inmediatamente si existen
+      if (envio.eventos && envio.eventos.length > 0) {
+        setTrackingSteps(envio.eventos);
+      }
+
+      // 2. Actualización ASÍNCRONA en segundo plano (eventos detallados)
+      // Solo ejecutar la llamada API si el índice realmente cambió (evitar duplicados)
+      if (envio.numero_guia && lastProcessedIndexRef.current !== selectedEnvioIndex) {
+        lastProcessedIndexRef.current = selectedEnvioIndex;
+        handleGuideChange(envio.numero_guia);
+      }
+    }
+  }, [selectedEnvioIndex, envios, fechaCreacion, handleGuideChange]);
+
+  // Efecto para cargar eventos de la primera guía al inicializar
+  useEffect(() => {
+    if (productos.length > 0 && envios.length > 0 && medioPago === 1) { // Solo para Coordinadora
+      // Encontrar la primera guía con productos
+      const firstProductWithGuide = productos.find(p => p.numero_guia);
+      if (firstProductWithGuide && firstProductWithGuide.numero_guia) {
+        handleGuideChange(firstProductWithGuide.numero_guia);
+      }
+    }
+  }, [productos, envios, medioPago, handleGuideChange]);
+
+
+  // Determinar el tipo de envío basado en medio_pago o fallback a metodo_envio
+  const getShippingType = (): "pickup" | "imagiq" | "coordinadora" => {
+    // Si tenemos medio_pago, usarlo directamente
+    if (medioPago !== undefined) {
+      if (medioPago === 2) return "pickup";
+      if (medioPago === 3) return "imagiq";
+      if (medioPago === 1) return "coordinadora";
+    }
+
+    // Fallback: inferir del metodo_envio si no hay medio_pago
+    if (metodoEnvio?.toLowerCase().includes("recoger") || metodoEnvio?.toLowerCase().includes("tienda")) {
+      return "pickup";
+    }
+    if (metodoEnvio?.toLowerCase().includes("imagiq")) {
+      return "imagiq";
+    }
+
+    // Por defecto, coordinadora
+    return "coordinadora";
+  };
+
+  useEffect(() => {
+    // Primero obtener el método de envío para saber qué endpoint usar
+    apiClient.get<{ metodo_envio: number }>(`/api/orders/${pathParams.orderId}/delivery-method`)
+      .then((deliveryMethodRes) => {
+        const deliveryMethod = deliveryMethodRes.data;
+        const metodoEnvio = deliveryMethod.metodo_envio;
+
+        // Seleccionar endpoints
+        let orderEndpoint = `/api/orders/shipping-info/${pathParams.orderId}`;
+        let productDetailsEndpoint = "";
+
+        if (metodoEnvio === 3) {
+          // IMAGIQ - usar endpoint específico
+          orderEndpoint = `/api/orders/${pathParams.orderId}/imagiq`;
+        } else if (metodoEnvio === 2) {
+          // Pickup - usar endpoint específico
+          orderEndpoint = `/api/orders/${pathParams.orderId}/tiendas`;
+        } else {
+          // COORDINADORA (1) o Default
+          // Usamos shipping-info para tracking, PERO necesitamos el endpoint de imagiq para los productos (imágenes)
+          productDetailsEndpoint = `/api/orders/${pathParams.orderId}/imagiq`;
+        }
+
+        const promises: Array<Promise<ApiResponse<OrderDetails | { metodo_envio: number } | null>>> = [
+          apiClient.get<OrderDetails>(orderEndpoint),
+          Promise.resolve(deliveryMethodRes)
+        ];
+
+        if (productDetailsEndpoint) {
+          promises.push(
+            apiClient.get<OrderDetails>(productDetailsEndpoint).catch(() => ({ 
+              data: null, 
+              success: false 
+            } as ApiResponse<null>))
+          );
+        }
+
+        return Promise.all(promises);
+      })
+      .then(([orderRes, deliveryMethodRes, extraProductRes]) => {
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        const data = orderRes.data as any;
+        const deliveryMethod = deliveryMethodRes.data;
+        // Datos extra de productos (si existen)
+        const productsExtraData = extraProductRes?.data;
+
+        if (!deliveryMethod) {
+          throw new Error("Delivery method data is missing");
+        }
+
+        const metodoEnvio = deliveryMethod.metodo_envio;
+
+        // Manejar datos según el método de envío
+        let numeroGuia = "";
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        let productosData: any[] = [];
+        let tiendaData = null;
+        let direccionEntrega = "";
+        let ciudadEntrega = "";
+
+        if (metodoEnvio === 3) {
+          // IMAGIQ - estructura diferente con data.envio
+          const envioData = data.envio || {};
+          productosData = data.items || [];
+
+          // Procesar datos de la tienda y limpiar coordenadas
+          if (envioData.tienda_origen) {
+            const isWarehouse = envioData.tienda_origen.codBodega === "001" || envioData.tienda_origen.codBodega === "CD";
+
+            if (isWarehouse) {
+              // Si es centro de distribución, ocultar dirección exacta y coordenadas para no mostrar ruta
+              tiendaData = {
+                nombre: "Centro de Distribución",
+                descripcion: "Centro de Distribución",
+                direccion: "Centro de Distribución",
+                ciudad: envioData.tienda_origen.ciudad || "Bogotá",
+                telefono: undefined,
+                horario: undefined,
+                latitud: undefined,
+                longitud: undefined,
+              };
+            } else {
+              tiendaData = {
+                nombre: envioData.tienda_origen.descripcion?.replace(/^Ses\s+/i, '').trim() || undefined,
+                descripcion: envioData.tienda_origen.descripcion?.replace(/^Ses\s+/i, '').trim() || undefined,
+                direccion: envioData.tienda_origen.direccion || "Tienda IMAGIQ",
+                ciudad: envioData.tienda_origen.ciudad || "Bogotá",
+                telefono: (envioData.tienda_origen.telefono != null && envioData.tienda_origen.telefono !== "")
+                  ? String(envioData.tienda_origen.telefono).trim()
+                  : undefined,
+                horario: (envioData.tienda_origen.horario != null && envioData.tienda_origen.horario !== "")
+                  ? String(envioData.tienda_origen.horario).trim()
+                  : undefined,
+                latitud: envioData.tienda_origen.latitud
+                  ? String(envioData.tienda_origen.latitud).trim()
+                  : undefined,
+                longitud: envioData.tienda_origen.longitud
+                  ? String(envioData.tienda_origen.longitud).trim()
+                  : undefined,
+              };
+            }
+          } else {
+            tiendaData = null;
+          }
+
+          direccionEntrega = envioData.direccion_destino?.linea_uno || envioData.direccion_destino?.direccion_formateada || "";
+          ciudadEntrega = "";
+
+          // Guardar coordenadas de destino para IMAGIQ (eliminar espacios)
+          if (envioData.direccion_destino?.latitud && envioData.direccion_destino?.longitud) {
+            const lat = parseFloat(String(envioData.direccion_destino.latitud).trim());
+            const lng = parseFloat(String(envioData.direccion_destino.longitud).trim());
+            if (!isNaN(lat) && !isNaN(lng)) {
+              setLatitudDestino(lat);
+              setLongitudDestino(lng);
+            }
+          }
+
+          // Set order number from envio - Prioritize serial_id for Imagiq as requested
+          numeroGuia = data.serial_id || envioData.numero_guia || data.id || "...";
+
+          // Handle estimated delivery date - calcular solo días hábiles
+          if (envioData.tiempo_entrega_estimado && data.fecha_creacion) {
+            const fechaCreacion = new Date(data.fecha_creacion);
+            const dias = Number.parseInt(String(envioData.tiempo_entrega_estimado));
+
+            // Calcular fecha inicial sumando días hábiles
+            const fechaInicial = addBusinessDays(fechaCreacion, dias);
+            setEstimatedInitDate(formatDate(fechaInicial.toISOString()));
+
+            // Fecha final: un día hábil después de la inicial
+            const fechaFinal = getNextBusinessDay(fechaInicial);
+            setEstimatedFinalDate(formatDate(fechaFinal.toISOString()));
+          }
+
+          // IMAGIQ no tiene eventos de tracking como Coordinadora
+          setTrackingSteps([]);
+          setPdfBase64("");
+
+        } else if (metodoEnvio === 2) {
+          // PICKUP - estructura con data.items y data.tienda
+          productosData = data.items || [];
+
+          // Mapear datos de la tienda explícitamente - asegurar que todos los campos se mapeen
+          if (data.tienda && (data.tienda.direccion || data.tienda.ciudad || data.tienda.descripcion)) {
+            // Asegurar que direccion y ciudad siempre tengan valores (requeridos por la interfaz)
+            // Manejar null/undefined y hacer trim
+            const direccionTienda = (data.tienda.direccion != null && data.tienda.direccion !== "")
+              ? String(data.tienda.direccion).trim()
+              : "";
+            const ciudadTienda = (data.tienda.ciudad != null && data.tienda.ciudad !== "")
+              ? String(data.tienda.ciudad).trim()
+              : "";
+
+            tiendaData = {
+              nombre: (data.tienda.nombre != null && data.tienda.nombre !== "")
+                ? String(data.tienda.nombre).trim()
+                : undefined,
+              descripcion: (data.tienda.descripcion != null && data.tienda.descripcion !== "")
+                ? String(data.tienda.descripcion).trim()
+                : undefined,
+              direccion: direccionTienda || "Tienda IMAGIQ",
+              ciudad: ciudadTienda || "Bogotá",
+              telefono: (data.tienda.telefono != null && data.tienda.telefono !== "")
+                ? String(data.tienda.telefono).trim()
+                : undefined,
+              horario: (data.tienda.horario != null && data.tienda.horario !== "")
+                ? String(data.tienda.horario).trim()
+                : undefined,
+              latitud: (data.tienda.latitud != null && data.tienda.latitud !== "")
+                ? String(data.tienda.latitud).trim()
+                : undefined,
+              longitud: (data.tienda.longitud != null && data.tienda.longitud !== "")
+                ? String(data.tienda.longitud).trim()
+                : undefined,
+            };
+          } else {
+            tiendaData = null;
+          }
+
+          numeroGuia = data.serial_id || data.id || "...";
+          setHoraRecogida(data.recogida_tienda?.hora_recogida_autorizada || "");
+          setToken(data.token?.token || "");
+
+        } else {
+          // COORDINADORA - estructura con data.envios
+          // Normalizar a array de envios
+          const enviosList = data.envios && data.envios.length > 0 ? data.envios : [data];
+          setEnvios(enviosList);
+          setSelectedEnvioIndex(0);
+
+          // COORDINADORA
+          // Intentar obtener productos desde el endpoint extra (imagiq) si está disponible, ya que tiene imágenes
+          // Type guard: check if productsExtraData is OrderDetails (has items property)
+          if (productsExtraData && 'items' in productsExtraData && productsExtraData.items && productsExtraData.items.length > 0) {
+            productosData = productsExtraData.items;
+          } else {
+            // Fallback a lo que venga en shipping-info
+            productosData = data.productos || [];
+          }
+
+          tiendaData = data.tienda || null;
+          direccionEntrega = data.direccion_entrega || "";
+          ciudadEntrega = data.ciudad_entrega || "";
+
+          // Inicializar vista con el primer envío
+          // Nota: El orderNumber se sobrescribirá con la guía en updateCoordinadoraView
+          updateCoordinadoraView(enviosList[0], data.fecha_creacion);
+
+          // Fallback initial values if updateCoordinadoraView hasn't run or failed
+          if (!enviosList[0].numero_guia) {
+            numeroGuia = data.orden_id || "...";
+          } else {
+            numeroGuia = enviosList[0].numero_guia;
+          }
+        }
+
+        // Set common data
+        setOrderNumber(numeroGuia);
+        setMetodoEnvio(data.metodo_envio || "");
+        setMedioPago(deliveryMethod.metodo_envio ?? data.medio_pago);
+        setFechaCreacion(data.fecha_creacion || "");
+
+        // Map productos to match ProductoDetalle interface
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        const mappedProductos: ProductoDetalle[] = productosData.map((producto: any) => ({
+          id: String(producto.id || ''),
+          nombre: String(producto.nombre || ''),
+          desdetallada: producto.desdetallada ? String(producto.desdetallada) : undefined,
+          imagen: String(producto.imagen || producto.image_preview_url || ''),
+          cantidad: Number(producto.cantidad || 0),
+          precio: producto.precio ? Number(producto.precio) : (producto.unit_price ? parseFloat(String(producto.unit_price)) : undefined),
+          numero_guia: producto.numero_guia || producto.guideNumber,
+        }));
+
+        setProductos(mappedProductos);
+        // Set tiendaInfo - debe tener al menos direccion o ciudad para ser válido
+        if (tiendaData && (tiendaData.direccion || tiendaData.ciudad)) {
+          setTiendaInfo(tiendaData);
+        } else {
+          setTiendaInfo(undefined);
+        }
+        setDireccionEntrega(direccionEntrega);
+        setCiudadEntrega(ciudadEntrega || "");
+        setNombreDestinatario(data.nombre_destinatario || "");
+        setTelefonoDestinatario(data.telefono_destinatario || "");
+
+        setIsLoading(false);
+      })
+      .catch((error) => {
+        console.error("❌ ERROR AL CARGAR DATOS:");
+        console.error("Error completo:", error);
+        console.error("Mensaje:", error?.message);
+        console.error("Response:", error?.response?.data);
+        setError(
+          "No se pudo cargar la información del pedido. Por favor, intenta nuevamente."
+        );
+        setIsLoading(false);
+      });
+  }, [pathParams, updateCoordinadoraView]);
+
+  if (isLoading) {
+    return <LoadingSpinner message="Cargando información del pedido..." />;
+  }
+
+  if (error) {
+    return (
+      <ErrorView message={error} onRetry={() => window.location.reload()} />
+    );
+  }
+
+  // Determinar qué vista mostrar basándose en el tipo de envío
+  const shippingType = getShippingType();
+  const showPickup = shippingType === "pickup";
+  const showImagiq = shippingType === "imagiq";
+  const showCoordinadora = shippingType === "coordinadora";
+
+  return (
+    <div className="bg-white pt-4 md:pt-5">
+      {/* Main Content */}
+      <main className="w-full max-w-7xl mx-auto px-2 sm:px-4">
+        {/* Debug: Shipping Method Display */}
+        {process.env.NEXT_PUBLIC_SHOW_PRODUCT_CODES === "true" && (
+          <div className="mb-4 p-3 bg-blue-50 border border-blue-200 rounded-lg">
+            <p className="text-xs font-semibold text-blue-800 mb-2">
+              Debug: Método de envío
+            </p>
+            <div className="text-xs text-blue-700 space-y-1">
+              <p>
+                <strong>medio_pago:</strong> {medioPago !== undefined ? medioPago : "undefined"}
+              </p>
+              <p>
+                <strong>metodo_envio:</strong> {metodoEnvio || "N/A"}
+              </p>
+              <p>
+                <strong>Tipo detectado:</strong>{" "}
+                {shippingType === "pickup" && "📦 Pickup (2)"}
+                {shippingType === "imagiq" && "🚚 Imagiq (3)"}
+                {shippingType === "coordinadora" && "🚛 Coordinadora (1)"}
+              </p>
+            </div>
+          </div>
+        )}
+
+        {/* Tracking Content - full-bleed white, no card border */}
+        <div className="bg-white max-w-7xl mx-auto" style={{ minHeight: "500px" }}>
+          {/* Pickup View - medio_pago: 2 */}
+          {showPickup && (
+            <PickupShippingView
+              orderNumber={orderNumber}
+              token={token}
+              fechaCreacion={fechaCreacion ? formatDate(fechaCreacion) : formatDate(new Date().toISOString())}
+              horaRecogida={horaRecogida}
+              direccionTienda={tiendaInfo?.direccion}
+              ciudadTienda={tiendaInfo?.ciudad}
+              nombreTienda={tiendaInfo?.nombre}
+              descripcionTienda={tiendaInfo?.descripcion}
+              telefonoTienda={tiendaInfo?.telefono}
+              latitudTienda={tiendaInfo?.latitud}
+              longitudTienda={tiendaInfo?.longitud}
+              products={productos}
+              orderData={{ id: pathParams.orderId }}
+            />
+          )}
+
+          {/* IMAGIQ Shipping View - medio_pago: 3 */}
+          {showImagiq && (
+            <ImagiqShippingView
+              orderNumber={orderNumber}
+              estimatedInitDate={estimatedInitDate}
+              estimatedFinalDate={estimatedFinalDate}
+              direccionEntrega={direccionEntrega}
+              ciudadEntrega={ciudadEntrega}
+              nombreDestinatario={nombreDestinatario}
+              telefonoDestinatario={telefonoDestinatario}
+              products={productos}
+              tiendaOrigen={tiendaInfo}
+              latitudDestino={latitudDestino}
+              longitudDestino={longitudDestino}
+            />
+          )}
+
+          {/* Coordinadora Shipping View - medio_pago: 1 */}
+          {showCoordinadora && (
+            <ShippingOrderView
+              orderNumber={orderNumber}
+              estimatedInitDate={estimatedInitDate}
+              estimatedFinalDate={estimatedFinalDate}
+              trackingSteps={trackingSteps}
+              pdfBase64={pdfBase64}
+              shipments={envios}
+              selectedShipmentIndex={selectedEnvioIndex}
+              onSelectShipment={setSelectedEnvioIndex}
+              onGuideChange={handleGuideChange}
+              products={productos}
+              shippingType={shippingType}
+            />
+          )}
+        </div>
+      </main>
+    </div>
+  );
+}

@@ -1,0 +1,37 @@
+import React, { useState } from 'react';
+import { IoClose } from "react-icons/io5";
+import { IconType } from 'react-icons';
+
+type HouseButtonProps = {
+  onClick: () => void;
+  title:string
+  Icon: IconType
+};
+
+export default function ButtonLabel({ onClick , title, Icon}: HouseButtonProps) {
+  const [showLabel, setShowLabel] = useState(true);
+
+  return (
+    <div className="relative flex items-center">
+  
+
+      {/* Botón principal */}
+      <button
+        onClick={onClick}
+        className="inline-flex items-center justify-center bg-black text-white p-4 rounded-full shadow hover:bg-gray-900 transition-all border border-black cursor-pointer mr-3"
+      >
+        <Icon size={20} />
+      </button>
+          {/* Etiqueta a la izquierda */}
+      {showLabel && (
+        <div className="flex items-center bg-white text-black border border-gray-300 rounded-md shadow px-4 py-2 mr-3"
+             style={{ fontFamily: "SamsungSharpSans" }}>
+          <span className="mr-2">{title}</span>
+          <button onClick={() => setShowLabel(false)} className="text-gray-500 hover:text-gray-300 cursor-pointer">
+            <IoClose size={18} />
+          </button>
+        </div>
+      )}
+    </div>
+  );
+}

@@ -1,0 +1,441 @@
+/**
+ * @module usePlacesAutocomplete
+ * @description Hook personalizado para manejar el autocompletado de direcciones
+ * Siguiendo el Single Responsibility Principle (SRP) de SOLID
+ */
+
+import { useState, useEffect, useCallback, useRef, useMemo } from 'react';
+import { debounce } from 'lodash';
+import {
+  PlacePrediction,
+  PlaceDetails,
+  AutocompleteOptions,
+  AutocompleteState,
+  PlaceType,
+  PlaceField
+} from '@/types/places.types';
+import { placesService } from '@/services/places.service';
+
+/**
+ * Limpia la dirección formateada eliminando duplicados de ciudades y departamentos
+ * Ejemplo: "Calle X, Bogotá, D.C., Bogotá, Bogotá, D.C., Colombia" 
+ * -> "Calle X, Bogotá, D.C., Colombia"
+ */
+function cleanFormattedAddress(address: string): string {
+  if (!address) return address;
+  
+  // Dividir la dirección por comas
+  const parts = address.split(',').map(part => part.trim());
+  const cleaned: string[] = [];
+  
+  for (let i = 0; i < parts.length; i++) {
+    const part = parts[i];
+    const lowerPart = part.toLowerCase();
+    
+    // Si es el último elemento (país), siempre incluirlo
+    if (i === parts.length - 1) {
+      cleaned.push(part);
+      continue;
+    }
+    
+    // Si ya vimos esta parte recientemente (últimas 2 posiciones), saltarla
+    // Esto evita duplicados consecutivos pero permite que aparezca en diferentes contextos
+    const recentParts = cleaned.slice(-2).map(p => p.toLowerCase());
+    if (recentParts.includes(lowerPart)) {
+      continue;
+    }
+    
+    cleaned.push(part);
+  }
+  
+  return cleaned.join(', ');
+}
+
+interface UsePlacesAutocompleteProps {
+  /**
+   * Opciones de configuración del autocompletado
+   */
+  options?: AutocompleteOptions;
+
+  /**
+   * Callback cuando se selecciona un lugar
+   */
+  onPlaceSelect?: (place: PlaceDetails) => void;
+
+  /**
+   * Callback cuando ocurre un error
+   */
+  onError?: (error: string) => void;
+
+  /**
+   * Si debe validar cobertura automáticamente
+   * SOLO se aplica para direcciones de envío, NO para facturación
+   */
+  validateCoverage?: boolean;
+
+  /**
+   * Tipo de dirección: 'shipping' (envío) o 'billing' (facturación)
+   * Por defecto es 'shipping'
+   */
+  addressType?: 'shipping' | 'billing';
+}
+
+interface UsePlacesAutocompleteReturn {
+  /**
+   * Estado del autocompletado
+   */
+  state: AutocompleteState;
+
+  /**
+   * Valor actual del input
+   */
+  inputValue: string;
+
+  /**
+   * Función para actualizar el valor del input
+   */
+  setInputValue: (value: string) => void;
+
+  /**
+   * Función para buscar lugares
+   */
+  searchPlaces: (query: string) => void;
+
+  /**
+   * Función para seleccionar un lugar
+   */
+  selectPlace: (prediction: PlacePrediction) => Promise<void>;
+
+  /**
+   * Función para limpiar los resultados
+   */
+  clearResults: () => void;
+
+  /**
+   * Función para reiniciar el estado
+   */
+  reset: () => void;
+
+  /**
+   * Si está cargando
+   */
+  isLoading: boolean;
+
+  /**
+   * Predicciones actuales
+   */
+  predictions: PlacePrediction[];
+
+  /**
+   * Lugar seleccionado
+   */
+  selectedPlace: PlaceDetails | null;
+
+  /**
+   * Error actual
+   */
+  error: string | null;
+}
+
+/**
+ * Hook para manejar el autocompletado de direcciones con Google Places
+ */
+export function usePlacesAutocomplete({
+  options,
+  onPlaceSelect,
+  onError,
+  validateCoverage = false,
+  addressType = 'shipping'
+}: UsePlacesAutocompleteProps = {}): UsePlacesAutocompleteReturn {
+  // Estado del componente
+  const [state, setState] = useState<AutocompleteState>({
+    isLoading: false,
+    predictions: [],
+    selectedPlace: null,
+    error: null,
+    sessionToken: null
+  });
+
+  const [inputValue, setInputValue] = useState<string>('');
+
+  // Referencias para evitar efectos no deseados
+  const isMountedRef = useRef(false);
+  const lastSearchRef = useRef<string>('');
+  const isSelectingPlaceRef = useRef(false); // Flag para prevenir búsqueda automática al seleccionar
+
+  // Efecto para marcar el componente como montado
+  useEffect(() => {
+    isMountedRef.current = true;
+    return () => {
+      isMountedRef.current = false;
+    };
+  }, []);
+
+  // Configuración por defecto optimizada para Colombia - memoizada para evitar recreaciones
+  const defaultOptions = useMemo<AutocompleteOptions>(() => ({
+    countryRestriction: 'CO',
+    language: 'es',
+    minLength: 3,
+    debounceTime: 300,
+    maxResults: 5,
+    location: {
+      lat: 4.570868, // Centro de Colombia
+      lng: -74.297333
+    },
+    radius: 1000000, // 1000km para cubrir todo Colombia
+    types: [PlaceType.GEOCODE, PlaceType.ADDRESS],
+    fields: [PlaceField.ADDRESS_COMPONENTS, PlaceField.FORMATTED_ADDRESS, PlaceField.GEOMETRY, PlaceField.NAME, PlaceField.PLACE_ID],
+    ...options
+  }), [options]);
+
+  // Estabilizar los callbacks para evitar recreaciones
+  const onErrorRef = useRef(onError);
+  const onPlaceSelectRef = useRef(onPlaceSelect);
+
+  useEffect(() => {
+    onErrorRef.current = onError;
+  }, [onError]);
+
+  useEffect(() => {
+    onPlaceSelectRef.current = onPlaceSelect;
+  }, [onPlaceSelect]);
+
+  /**
+   * Función para búsqueda sin debounce
+   */
+  const performSearch = useCallback(async (query: string) => {
+    if (!isMountedRef.current || !query.trim()) {
+      return;
+    }
+
+    const trimmedQuery = query.trim();
+
+    // Evitar búsquedas duplicadas
+    if (lastSearchRef.current === trimmedQuery) {
+      return;
+    }
+    lastSearchRef.current = trimmedQuery;
+
+    // Verificar longitud mínima
+    if (trimmedQuery.length < (defaultOptions.minLength || 3)) {
+      setState(prev => ({
+        ...prev,
+        predictions: [],
+        error: null
+      }));
+      return;
+    }
+
+    setState(prev => ({
+      ...prev,
+      isLoading: true,
+      error: null
+    }));
+
+    try {
+      const response = await placesService.searchPlaces(trimmedQuery, defaultOptions);
+
+      if (!isMountedRef.current) return;
+
+      if (response.status === 'OK') {
+        setState(prev => ({
+          ...prev,
+          isLoading: false,
+          predictions: response.predictions,
+          sessionToken: response.sessionToken || null,
+          error: null
+        }));
+      } else if (response.status === 'ZERO_RESULTS') {
+        setState(prev => ({
+          ...prev,
+          isLoading: false,
+          predictions: [],
+          error: null
+        }));
+      } else {
+        throw new Error(response.errorMessage || 'Error desconocido');
+      }
+    } catch (error: unknown) {
+      if (!isMountedRef.current) return;
+
+      const errorMessage = error instanceof Error ? error.message : 'Error buscando direcciones';
+      setState(prev => ({
+        ...prev,
+        isLoading: false,
+        error: errorMessage
+      }));
+
+      onErrorRef.current?.(errorMessage);
+    }
+  }, [defaultOptions]); // Solo depende de defaultOptions
+
+  /**
+   * Función debounced para buscar lugares
+   */
+  const debouncedSearch = useMemo(
+    () => debounce(performSearch, defaultOptions.debounceTime || 300),
+    [performSearch, defaultOptions]
+  );
+
+  /**
+   * Función para buscar lugares
+   */
+  const searchPlaces = useCallback((query: string) => {
+    debouncedSearch(query);
+  }, [debouncedSearch]);
+
+  /**
+   * Función para seleccionar un lugar
+   */
+  const selectPlace = useCallback(async (prediction: PlacePrediction) => {
+    isSelectingPlaceRef.current = true; // Marcar que estamos seleccionando un lugar
+    setState(prev => ({
+      ...prev,
+      isLoading: true,
+      error: null
+    }));
+
+    try {
+      // Validar cobertura SOLO para direcciones de envío, NO para facturación
+      if (validateCoverage && addressType === 'shipping') {
+        const isInCoverage = await placesService.validateCoverage(prediction.placeId);
+        if (!isInCoverage) {
+          throw new Error('Esta dirección no está dentro de nuestras zonas de cobertura');
+        }
+      }
+
+      // Obtener detalles del lugar
+      const response = await placesService.getPlaceDetails(prediction.placeId);
+
+      if (!isMountedRef.current) return;
+
+      if (response.status === 'OK') {
+        // Limpiar la dirección para eliminar duplicados de ciudades
+        const cleanedAddress = cleanFormattedAddress(response.place.formattedAddress);
+
+        // Crear un nuevo objeto PlaceDetails con la dirección limpia
+        const cleanedPlace: PlaceDetails = {
+          ...response.place,
+          formattedAddress: cleanedAddress
+        };
+
+        setState(prev => ({
+          ...prev,
+          isLoading: false,
+          selectedPlace: cleanedPlace,
+          predictions: [], // Limpiar predicciones después de seleccionar
+          error: null
+        }));
+
+        // Actualizar el valor del input con la dirección seleccionada (limpiada)
+        setInputValue(cleanedAddress);
+
+        // Llamar callback con el lugar limpio
+        onPlaceSelectRef.current?.(cleanedPlace);
+
+        // Resetear flag después de completar la selección
+        // Aumentamos el timeout para asegurar que no se dispare la búsqueda
+        setTimeout(() => {
+          isSelectingPlaceRef.current = false;
+        }, 600);
+      } else {
+        throw new Error(response.errorMessage || 'Error obteniendo detalles del lugar');
+      }
+    } catch (error: unknown) {
+      if (!isMountedRef.current) return;
+
+      const errorMessage = error instanceof Error ? error.message : 'Error seleccionando lugar';
+      setState(prev => ({
+        ...prev,
+        isLoading: false,
+        error: errorMessage
+      }));
+
+      onErrorRef.current?.(errorMessage);
+
+      // Resetear flag en caso de error también
+      isSelectingPlaceRef.current = false;
+    }
+  }, [validateCoverage, addressType]); // Solo depende de validateCoverage y addressType
+
+  /**
+   * Función para limpiar resultados
+   */
+  const clearResults = useCallback(() => {
+    setState(prev => ({
+      ...prev,
+      predictions: [],
+      error: null
+    }));
+    lastSearchRef.current = '';
+  }, []);
+
+  /**
+   * Función para reiniciar el estado
+   */
+  const reset = useCallback(() => {
+    setState({
+      isLoading: false,
+      predictions: [],
+      selectedPlace: null,
+      error: null,
+      sessionToken: null
+    });
+    setInputValue('');
+    lastSearchRef.current = '';
+  }, []);
+
+  /**
+   * Ref para mantener la función debounced estable
+   */
+  const debouncedSearchRef = useRef(debouncedSearch);
+
+  // Actualizar la ref cuando cambie debouncedSearch
+  useEffect(() => {
+    debouncedSearchRef.current = debouncedSearch;
+  }, [debouncedSearch]);
+
+  /**
+   * Efecto para buscar cuando cambia el input
+   */
+  useEffect(() => {
+    // No buscar si estamos en proceso de seleccionar un lugar
+    if (isSelectingPlaceRef.current) {
+      return;
+    }
+
+    if (inputValue.trim()) {
+      debouncedSearchRef.current(inputValue);
+    } else {
+      setState(prev => ({
+        ...prev,
+        predictions: [],
+        error: null
+      }));
+      lastSearchRef.current = '';
+    }
+  }, [inputValue]); // Solo depende de inputValue
+
+  /**
+   * Cleanup del debounce al desmontar
+   */
+  useEffect(() => {
+    return () => {
+      debouncedSearchRef.current.cancel();
+    };
+  }, []); // Sin dependencias - solo al montar/desmontar
+
+  return {
+    state,
+    inputValue,
+    setInputValue,
+    searchPlaces,
+    selectPlace,
+    clearResults,
+    reset,
+    isLoading: state.isLoading,
+    predictions: state.predictions,
+    selectedPlace: state.selectedPlace,
+    error: state.error
+  };
+}
