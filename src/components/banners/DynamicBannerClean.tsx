@@ -257,6 +257,7 @@ function ContentBlocksOverlay({
                   style={{
                     ...titleStyles,
                     margin: 0,
+                    marginBottom: '1.5em',
                     whiteSpace: 'pre-line',
                     textAlign,
                   }}
