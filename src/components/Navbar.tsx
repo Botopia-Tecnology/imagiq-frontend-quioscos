@@ -4,12 +4,11 @@ import {
   useState,
   useEffect,
   useRef,
-  useMemo,
   type CSSProperties,
 } from "react";
 import Image from "next/image";
 import Link from "next/link";
-import { User, Menu, Heart, MapPin, ChevronDown, Search } from "lucide-react";
+import { User, Menu, Heart, Search } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useNavbarLogic } from "@/hooks/navbarLogic";
 import { posthogUtils } from "@/lib/posthogClient";
@@ -28,8 +27,6 @@ import ServicioTecnicoDropdown from "./dropdowns/servicio_tecnico";
 import DynamicDropdown from "./dropdowns/dynamic";
 import UserOptionsDropdown from "@/components/dropdowns/user_options";
 import { useAuthContext } from "@/features/auth/context";
-import { useDefaultAddress } from "@/hooks/useDefaultAddress";
-import AddressDropdown from "./navbar/AddressDropdown";
 import {
   MobileMenu,
   CartIcon,
@@ -40,52 +37,12 @@ import { hasDropdownMenu, getDropdownPosition } from "./navbar/utils/helpers";
 import { isStaticCategoryUuid } from "@/constants/staticCategories";
 import type { DropdownName, NavItem } from "./navbar/types";
 
-type AddressLike = {
-  ciudad?: string | null;
-  direccionFormateada?: string | null;
-  lineaUno?: string | null;
-  nombreDireccion?: string | null;
-};
-
-const getShortAddressLabel = (address: AddressLike | null): string => {
-  if (!address) return "";
-
-  const { direccionFormateada, ciudad, lineaUno } = address;
-
-  // If no formatted address and no line one, return city
-  if ((!direccionFormateada || direccionFormateada.trim().length === 0) &&
-      (!lineaUno || lineaUno.trim().length === 0)) {
-    return ciudad || "";
-  }
-
-  // Use formatted address or line one
-  const fullAddress = (direccionFormateada && direccionFormateada.trim()) ||
-                      (lineaUno && lineaUno.trim()) || "";
-
-  // If no city, return address as is
-  if (!ciudad || ciudad.trim().length === 0) {
-    return fullAddress;
-  }
-
-  // Find city in the full address and extract up to it (including the city)
-  const cityIndex = fullAddress.indexOf(ciudad);
-  if (cityIndex !== -1) {
-    // Extract up to city name + city length
-    const addressUpToCity = fullAddress.substring(0, cityIndex + ciudad.length);
-    return addressUpToCity;
-  }
-
-  // Fallback: if city not found in address, just return the full address
-  return fullAddress;
-};
-
 export default function Navbar() {
   const navbar = useNavbarLogic();
   const { theme } = useHeroContext();
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const { getNavbarRoutes, loading } = useVisibleCategories();
   const { isAuthenticated, user } = useAuthContext();
-  const { address: defaultMobileAddress } = useDefaultAddress("ENVIO");
   const { logoDark, logoLight } = useLogos();
 
   // Pre-cargar menús de todas las categorías dinámicas al cargar la página
@@ -216,23 +173,6 @@ export default function Navbar() {
         ? theme === "light"
         : navbar.showWhiteItemsMobile;
 
-  const mobileAddressData = useMemo<AddressLike | null>(
-    () =>
-      (defaultMobileAddress as AddressLike | null) ??
-      (user?.defaultAddress as AddressLike | null) ??
-      null,
-    [defaultMobileAddress, user?.defaultAddress]
-  );
-
-  const mobileAddressLabel = useMemo(
-    () => getShortAddressLabel(mobileAddressData),
-    [mobileAddressData]
-  );
-
-  const shouldShowMobileAddressLabel = Boolean(
-    isAuthenticated && mobileAddressData && mobileAddressLabel.length > 0
-  );
-
   const getIconColorClasses = (forMobile = false): string => {
     // Si hay un dropdown activo, siempre negro
     if (navbar.activeDropdown) {
@@ -343,55 +283,30 @@ export default function Navbar() {
                 priority
               />
             </Link>
-            {shouldShowMobileAddressLabel ? (
-              <div className="flex-1 min-w-0 xl:hidden">
-                <AddressDropdown
-                  showWhiteItems={shouldShowWhiteItemsMobile}
-                  renderMobileTrigger={({ onClick }) => (
-                    <button
-                      type="button"
-                      onClick={onClick}
-                      className={cn(
-                        "flex items-center gap-0.5 hover:opacity-80 transition-opacity",
-                        shouldShowWhiteItemsMobile ? "text-white" : "text-black"
-                      )}
-                      title={mobileAddressLabel}
-                    >
-                      <p className="text-[11px] leading-tight text-left">
-                        <span className="font-medium opacity-80">Enviar a </span>
-                        <span className="font-bold">{mobileAddressLabel}</span>
-                      </p>
-                      <ChevronDown className="w-3 h-3 flex-shrink-0" />
-                    </button>
-                  )}
-                />
-              </div>
-            ) : (
-              <Link
-                href="/"
-                onClick={(e) => {
-                  e.preventDefault();
-                  posthogUtils.capture("logo_click", {
-                    source: "navbar_samsung",
-                  });
-                  navbar.router.push("/");
-                }}
-                aria-label="Inicio Samsung"
-                className="flex items-center"
-              >
-                <Image
-                  src="https://res.cloudinary.com/dnglv0zqg/image/upload/v1760575601/Samsung_black_ec1b9h.svg"
-                  alt="Samsung"
-                  height={30}
-                  width={100}
-                  className={cn(
-                    "h-7 w-auto transition-all duration-300",
-                    shouldShowWhiteItemsMobile && "brightness-0 invert"
-                  )}
-                  priority
-                />
-              </Link>
-            )}
+            <Link
+              href="/"
+              onClick={(e) => {
+                e.preventDefault();
+                posthogUtils.capture("logo_click", {
+                  source: "navbar_samsung",
+                });
+                navbar.router.push("/");
+              }}
+              aria-label="Inicio Samsung"
+              className="flex items-center"
+            >
+              <Image
+                src="https://res.cloudinary.com/dnglv0zqg/image/upload/v1760575601/Samsung_black_ec1b9h.svg"
+                alt="Samsung"
+                height={30}
+                width={100}
+                className={cn(
+                  "h-7 w-auto transition-all duration-300",
+                  shouldShowWhiteItemsMobile && "brightness-0 invert"
+                )}
+                priority
+              />
+            </Link>
           </div>
 
           <div className="flex items-center gap-3 shrink-0">
@@ -451,7 +366,7 @@ export default function Navbar() {
         </div>
 
         {/* Desktop Header completo - Mostrar en pantallas >= 1280px */}
-        <div className="hidden xl:flex px-4 sm:px-6 lg:px-8 py-4 min-h-[100px] items-end justify-between gap-4 2xl:gap-8">
+        <div className="hidden xl:flex px-4 sm:px-6 lg:px-8 py-3 items-center justify-between gap-4 2xl:gap-8">
           <div className="flex items-center gap-2.5 xl:gap-3.5 2xl:gap-5 min-w-0 flex-1">
             <NavbarLogo
               showWhiteLogo={shouldShowWhiteLogo}
@@ -655,8 +570,8 @@ export default function Navbar() {
             </nav>
           </div>
 
-          <div className="hidden lg:flex flex-col items-start justify-between flex-none min-w-[320px] xl:min-w-[340px] 2xl:min-w-[380px]">
-            <div className="w-full flex items-center justify-end gap-2">
+          <div className="hidden lg:flex items-center flex-none">
+            <div className="flex items-center gap-2">
               <SearchBar
                 value={navbar.searchQuery}
                 onChange={navbar.setSearchQuery}
