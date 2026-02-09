@@ -151,6 +151,25 @@ class BannersService {
   }
 
   /**
+   * Obtiene TODOS los banners de un placement (sin filtrar por status).
+   * Usado en quioscos para determinar el orden global y saltar los primeros N.
+   */
+  async getAllBannersByPlacement(placement: string): Promise<Banner[]> {
+    try {
+      const response = await apiClient.get<BannerApiResponse>(
+        "/api/multimedia/banners?limit=100"
+      );
+      if (response.success && response.data?.data) {
+        return response.data.data.filter((b) => b.placement === placement);
+      }
+      return [];
+    } catch (error) {
+      console.error("[BannersService] Error fetching all banners:", error);
+      return [];
+    }
+  }
+
+  /**
    * Limpia el caché manualmente
    * Útil para forzar refresh de banners
    */

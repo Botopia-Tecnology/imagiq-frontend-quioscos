@@ -76,11 +76,24 @@ export function useHeroBanner(): UseHeroBannerReturn {
       setLoading(true);
       setError(null);
 
-      // CAMBIO: Obtener TODOS los banners del placement (no solo el primero)
-      const banners = await bannersService.getBannersByPlacement('hero');
+      // Quioscos: traer TODOS los hero banners (incluyendo inactivos) para
+      // determinar el orden global, saltar los 2 primeros (IM), y mostrar
+      // solo los activos del resto.
+      const allHeroBanners = await bannersService.getAllBannersByPlacement('hero');
 
-      if (banners.length > 0) {
-        const mappedConfigs = banners.map(banner =>
+      // Ordenar por display_order (nulls al final)
+      allHeroBanners.sort((a, b) => {
+        if (a.display_order == null && b.display_order == null) return 0;
+        if (a.display_order == null) return 1;
+        if (b.display_order == null) return 1;
+        return a.display_order - b.display_order;
+      });
+
+      // Saltar los 2 primeros (banners IM) y quedarse solo con los activos
+      const kioskBanners = allHeroBanners.slice(2).filter(b => b.status === 'active');
+
+      if (kioskBanners.length > 0) {
+        const mappedConfigs = kioskBanners.map(banner =>
           bannersService.mapBannerToHeroConfig(banner)
         );
         setConfigs(mappedConfigs);

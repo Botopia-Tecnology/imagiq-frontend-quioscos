@@ -276,6 +276,7 @@ export interface Banner {
   start_date: string | null;
   end_date: string | null;
   created_at: string;
+  display_order: number | null;
   updated_at: string;
   created_by: string | null;
   
