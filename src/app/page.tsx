@@ -5,8 +5,7 @@
  * Revalida cada 60 segundos para contenido actualizado
  */
 
-import { Suspense } from "react";
-import { getHomeProducts, getProductsByCategory } from "@/lib/api-server";
+import { getProductsByCategory } from "@/lib/api-server";
 import { mapApiProductsToFrontend } from "@/lib/mappers/product-mapper";
 import type { ProductCardProps } from "@/app/productos/components/ProductCard";
 
@@ -20,11 +19,6 @@ import DynamicBanner from "@/components/banners/DynamicBannerClean";
 import TVProductsGrid from "@/components/sections/TVProductsGrid";
 import BespokeAIBanner from "@/components/sections/BespokeAIBanner";
 import AppliancesProductsGrid from "@/components/sections/AppliancesProductsGrid";
-// Componentes que reciben datos del servidor
-import ProductShowcase from "@/components/sections/ProductShowcase";
-
-// Skeletons para Suspense
-import ProductShowcaseSkeleton from "@/components/sections/ProductShowcaseSkeleton";
 
 // Client wrapper para efectos del lado del cliente (scroll, etc.)
 import HomePageClient from "./HomePageClient";
@@ -35,15 +29,7 @@ export const revalidate = 60;
 export default async function HomePage() {
   // Fetch paralelo de datos en el servidor - más eficiente que CSR
   // Pedimos 50 productos de AV y 100 de DA para asegurar 4 con stock después del filtrado
-  const [productsData, tvProductsData, appliancesData] = await Promise.all([
-    getHomeProducts(300).catch(() => ({
-      products: [],
-      totalItems: 0,
-      totalPages: 0,
-      currentPage: 1,
-      hasNextPage: false,
-      hasPreviousPage: false,
-    })),
+  const [tvProductsData, appliancesData] = await Promise.all([
     getProductsByCategory("AV", undefined, undefined, 1, 50, "precio", "desc").catch(() => ({
       products: [],
       totalItems: 0,
@@ -71,12 +57,6 @@ export default async function HomePage() {
     return stockTotal ? stockTotal > 0 : false;
   };
 
-  // Mapear productos de API a formato del frontend y filtrar por stock > 0
-  // Tomar solo los primeros 4 con stock disponible
-  const mappedProducts = productsData.products.length > 0
-    ? mapApiProductsToFrontend(productsData.products).filter(hasStock)
-    : [];
-
   const mappedTVProducts = tvProductsData.products.length > 0
     ? mapApiProductsToFrontend(tvProductsData.products).filter(hasStock).slice(0, 4)
     : [];
@@ -95,11 +75,6 @@ export default async function HomePage() {
 
       <HomePageClient>
         <div id="main-page" className="min-h-screen md:mr-0 md:overflow-x-clip">
-          {/* ProductShowcase con Suspense */}
-          <Suspense fallback={<ProductShowcaseSkeleton />}>
-            <ProductShowcase initialProducts={mappedProducts} />
-          </Suspense>
-
           <DynamicBanner placement="home-3" className="mt-6 md:mt-8 lg:mt-12">
             <AITVsBanner />
           </DynamicBanner>
