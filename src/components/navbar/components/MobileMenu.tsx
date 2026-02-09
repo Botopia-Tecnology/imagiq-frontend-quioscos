@@ -4,7 +4,6 @@ import { useState, useEffect } from "react";
 import type { FC, FormEvent, ReactNode } from "react";
 import { MenuItem } from "./MobileMenuData";
 import { MobileMenuHeader } from "./MobileMenuHeader";
-import { MobileMenuPromo } from "./MobileMenuPromo";
 import { MobileMenuContent } from "./MobileMenuContent";
 import { DynamicMobileSubmenu } from "./DynamicMobileSubmenu";
 import { SearchBar } from "./SearchBar";
@@ -189,8 +188,6 @@ export const MobileMenu: FC<Props> = ({
 
         {!activeSubmenu && (
           <div className="sticky top-0 bg-white z-10">
-            <MobileMenuPromo onClose={onClose} />
-
             <div
               className="px-4 pb-4 pt-3"
               style={{
