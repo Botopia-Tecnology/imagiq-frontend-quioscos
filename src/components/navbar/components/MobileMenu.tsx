@@ -48,7 +48,9 @@ export const MobileMenu: FC<Props> = ({
   const { getMenus, isLoading } = usePreloadCategoryMenus();
 
   const { getNavbarRoutes, loading } = useVisibleCategories();
-  const menuRoutes = getNavbarRoutes();
+  const menuRoutes = getNavbarRoutes().filter(
+    (item) => item.name !== "Ofertas"
+  );
 
   // Sincronizar activeMenus cuando los menús precargados estén disponibles
   useEffect(() => {

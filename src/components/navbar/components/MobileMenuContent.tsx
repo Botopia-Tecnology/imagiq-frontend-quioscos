@@ -80,16 +80,6 @@ export const MobileMenuContent: FC<Props> = ({ onClose, onMenuItemClick, menuRou
         <Link href="/login" onClick={onClose} className="block text-base font-semibold text-blue-600 py-3">
           Iniciar sesión/Sign-Up
         </Link>
-        <Link
-          href="/productos/dispositivos-moviles"
-          onClick={onClose}
-          className="block text-base font-semibold text-gray-900 py-3"
-        >
-          ¿Por qué crear una Samsung Account?
-        </Link>
-        <Link href="/pedidos" onClick={onClose} className="block text-base font-semibold text-gray-900 py-3">
-          Mis pedidos
-        </Link>
       </div>
     </div>
   );
