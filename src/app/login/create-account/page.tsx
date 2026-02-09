@@ -560,34 +560,8 @@ export default function CreateAccountPage() {
   return (
     <div className="flex min-h-screen">
       {/* Panel izquierdo - Branding (solo desktop) */}
-      <div className="hidden lg:flex lg:w-1/3 bg-black text-white flex-col justify-between p-10">
-        <div className="flex items-center gap-3">
-          <Image
-            src="/frame_white.png"
-            alt="ImagiQ"
-            width={40}
-            height={40}
-            priority
-          />
-          <span className="text-lg font-bold tracking-tight">ImagiQ Quioscos</span>
-        </div>
-
-        <div className="space-y-6">
-          {/* Indicador de pasos en el panel lateral */}
-          <StepIndicator steps={STEPS} currentStep={currentStep} />
-        </div>
-
-        <div className="space-y-4">
-          <blockquote className="space-y-2">
-            <p className="text-lg leading-relaxed">
-              &ldquo;Crea tu cuenta corporativa para acceder a la plataforma.&rdquo;
-            </p>
-            <footer className="text-sm text-gray-400">Equipo ImagiQ</footer>
-          </blockquote>
-          <p className="text-xs text-gray-500">
-            Solo disponible para correos @botopia.tech, @imagiq.com o @imagiq.co
-          </p>
-        </div>
+      <div className="hidden lg:flex lg:w-1/3 bg-black text-white items-center justify-center">
+        <h1 className="text-5xl font-bold tracking-tight">Samsung Store</h1>
       </div>
 
       {/* Panel derecho - Formulario */}
@@ -607,7 +581,7 @@ export default function CreateAccountPage() {
             <StepIndicator steps={STEPS} currentStep={currentStep} />
           </div>
 
-          <Card>
+          <Card className="border-none shadow-none">
             <CardHeader>
               <CardTitle className="text-xl font-bold">
                 {currentStep === 1 && "Información personal"}

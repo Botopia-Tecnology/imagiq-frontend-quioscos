@@ -111,23 +111,8 @@ export default function PasswordRecoveryPage() {
   return (
     <div className="flex min-h-screen">
       {/* Panel izquierdo - Branding (solo desktop) */}
-      <div className="hidden lg:flex lg:w-1/2 bg-black text-white flex-col justify-between p-10">
-        <div className="flex items-center gap-3">
-          <Image
-            src="/frame_white.png"
-            alt="ImagiQ"
-            width={40}
-            height={40}
-            priority
-          />
-          <span className="text-lg font-bold tracking-tight">ImagiQ Quioscos</span>
-        </div>
-        <blockquote className="space-y-2">
-          <p className="text-lg leading-relaxed">
-            &ldquo;Recupera el acceso a tu cuenta corporativa de forma segura.&rdquo;
-          </p>
-          <footer className="text-sm text-gray-400">Equipo ImagiQ</footer>
-        </blockquote>
+      <div className="hidden lg:flex lg:w-1/2 bg-black text-white items-center justify-center">
+        <h1 className="text-5xl font-bold tracking-tight">Samsung Store</h1>
       </div>
 
       {/* Panel derecho - Formulario */}
@@ -145,7 +130,7 @@ export default function PasswordRecoveryPage() {
           </div>
 
           {step === "success" ? (
-            <Card>
+            <Card className="border-none shadow-none">
               <CardHeader className="text-center">
                 <div className="flex justify-center mb-4">
                   <div className="w-16 h-16 bg-green-100 rounded-full flex items-center justify-center">
