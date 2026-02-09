@@ -132,7 +132,7 @@ export function useVisibleCategories() {
       href: "/tiendas",
       category: "ubicaciones",
       categoryCode: "tiendas",
-      dropdownName: undefined, // No tiene dropdown
+      dropdownName: undefined as string | undefined, // No tiene dropdown
       uuid: "tiendas",
       totalProducts: 0,
       orden: 1000,
