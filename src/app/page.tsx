@@ -6,7 +6,7 @@
  */
 
 import { Suspense } from "react";
-import { getHomeProducts, getStores, getProductsByCategory } from "@/lib/api-server";
+import { getHomeProducts, getProductsByCategory } from "@/lib/api-server";
 import { mapApiProductsToFrontend } from "@/lib/mappers/product-mapper";
 import type { ProductCardProps } from "@/app/productos/components/ProductCard";
 
@@ -22,16 +22,11 @@ import DynamicBanner from "@/components/banners/DynamicBannerClean";
 import TVProductsGrid from "@/components/sections/TVProductsGrid";
 import BespokeAIBanner from "@/components/sections/BespokeAIBanner";
 import AppliancesProductsGrid from "@/components/sections/AppliancesProductsGrid";
-import Reviews from "@/components/sections/Reviews";
-
 // Componentes que reciben datos del servidor
 import ProductShowcase from "@/components/sections/ProductShowcase";
-import LocationMap from "@/components/LocationMap";
-import StoresCarousel from "@/components/StoresCarousel";
 
 // Skeletons para Suspense
 import ProductShowcaseSkeleton from "@/components/sections/ProductShowcaseSkeleton";
-import StoresCarouselSkeleton from "@/components/StoresCarouselSkeleton";
 
 // Client wrapper para efectos del lado del cliente (scroll, etc.)
 import HomePageClient from "./HomePageClient";
@@ -42,7 +37,7 @@ export const revalidate = 60;
 export default async function HomePage() {
   // Fetch paralelo de datos en el servidor - más eficiente que CSR
   // Pedimos 50 productos de AV y 100 de DA para asegurar 4 con stock después del filtrado
-  const [productsData, tvProductsData, appliancesData, stores] = await Promise.all([
+  const [productsData, tvProductsData, appliancesData] = await Promise.all([
     getHomeProducts(300).catch(() => ({
       products: [],
       totalItems: 0,
@@ -67,7 +62,6 @@ export default async function HomePage() {
       hasNextPage: false,
       hasPreviousPage: false,
     })),
-    getStores().catch(() => []),
   ]);
 
   // Helper para filtrar productos con stock > 0
@@ -125,24 +119,6 @@ export default async function HomePage() {
           </DynamicBanner>
 
           <AppliancesProductsGrid initialProducts={mappedAppliancesProducts} />
-
-          <section id="reviews-slider" className="bg-white">
-            <Reviews />
-          </section>
-
-          {/* Carrusel de tiendas con datos del servidor */}
-          <Suspense fallback={<StoresCarouselSkeleton />}>
-            <section id="tiendas-carrusel" className="bg-white">
-              <StoresCarousel initialStores={stores} />
-            </section>
-          </Suspense>
-
-          {/* Mapa de tiendas con datos del servidor */}
-          <section id="tiendas" className="py-2 bg-white">
-            <div className="container mx-auto px-6">
-              <LocationMap initialStores={stores} />
-            </div>
-          </section>
 
           <CTASection />
         </div>

@@ -433,15 +433,27 @@ function calculatePricingFromArray(apiProduct: ProductApiData) {
  * NOTA: Esta función ahora acepta ProductOrBundleApiData[] pero solo procesa productos (ignora bundles)
  * Para procesar bundles, usar mapApiProductsAndBundles
  */
+// Categorías ocultas en quioscos (ej: "IM" = dispositivos móviles)
+const HIDDEN_CATS = new Set(
+  (process.env.NEXT_PUBLIC_HIDDEN_CATEGORIES || "")
+    .split(",")
+    .map((c) => c.trim().toUpperCase())
+    .filter(Boolean)
+);
+
 export function mapApiProductsToFrontend(apiProducts: ProductOrBundleApiData[]): ProductCardProps[] {
   // Validación de seguridad
   if (!apiProducts || !Array.isArray(apiProducts)) {
     console.warn('[mapApiProductsToFrontend] Recibido valor inválido:', apiProducts);
     return [];
   }
-  
+
   return apiProducts
     .filter((item): item is ProductApiData => !isBundle(item))
+    .filter((item) => {
+      const cat = item.categoria;
+      return !cat || !HIDDEN_CATS.has(cat.toUpperCase());
+    })
     .map(mapApiProductToFrontend);
 }
 

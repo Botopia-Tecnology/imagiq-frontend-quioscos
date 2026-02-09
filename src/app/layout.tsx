@@ -18,7 +18,6 @@ import { CartProvider } from "@/features/cart/CartContext";
 import { AnalyticsProvider } from "@/features/analytics/AnalyticsContext";
 import { UserPreferencesProvider } from "@/features/user/UserPreferencesContext";
 import { PostHogProvider } from "@/features/analytics/PostHogProvider";
-import ChatbotWidget from "@/components/chatbotWidget";
 import { Toaster } from "@/components/ui/sonner";
 import ClientLayout from "./ClientLayout";
 import AnalyticsScripts from "@/components/analytics/AnalyticsScripts";
@@ -29,7 +28,6 @@ import { ProductProvider } from "@/features/products/ProductContext";
 import { SelectedColorProvider } from "@/contexts/SelectedColorContext";
 import { PointsProvider } from "@/contexts/PointsContext";
 import { SelectedStoreProvider } from "@/contexts/SelectedStoreContext";
-import { ChatbotProvider } from "@/contexts/ChatbotContext";
 import { HeroProvider } from "@/contexts/HeroContext";
 import { CategoryMetadataProvider } from "@/contexts/CategoryMetadataContext";
 import MaintenanceScreen from "@/components/MaintenanceScreen";
@@ -172,16 +170,12 @@ export default function RootLayout({
                               <SelectedColorProvider>
                                 <PointsProvider>
                                   <SelectedStoreProvider>
-                                    <ChatbotProvider>
                                       {/* Mostrar pantalla de mantenimiento si está activada */}
                                       {isMaintenanceMode ? (
                                         <MaintenanceScreen />
                                       ) : (
                                         <ClientLayout>{safeChildren}</ClientLayout>
                                       )}
-                                      {/* Widget del chatbot - solo si NO está en mantenimiento */}
-                                      {!isMaintenanceMode && <ChatbotWidget />}
-                                    </ChatbotProvider>
                                   </SelectedStoreProvider>
                                   {/* Toast notifications */}
                                   <Toaster

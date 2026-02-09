@@ -22,7 +22,6 @@ import { posthogUtils } from "@/lib/posthogClient";
 import { useAnalytics } from "@/lib/analytics/hooks/useAnalytics";
 import { useCloudinaryImage } from "@/hooks/useCloudinaryImage";
 import { useProductSelection } from "@/hooks/useProductSelection";
-import { useChatbot } from "@/contexts/ChatbotContext";
 import {
   calculateDynamicPrices,
   calculateSavings,
@@ -121,8 +120,6 @@ export default function ProductCard({
   // Hook para notificaciones de stock
   const stockNotification = useStockNotification();
   
-  // Hook para cerrar el chat cuando se redirija
-  const { closeChat } = useChatbot();
 
   // Hook para manejo inteligente de selección de productos
   const productSelection = useProductSelection(
@@ -405,9 +402,8 @@ export default function ProductCard({
           ] ?? (acceptsTradeIn ? 1 : 0),
       });
 
-      // Si está en el chat, cerrar el chat y redirigir al carrito
+      // Si está en el chat, redirigir al carrito
       if (isInChat) {
-        closeChat();
         router.push('/carrito/step1');
       }
     } finally {
@@ -489,11 +485,6 @@ export default function ProductCard({
       `product_selection_${id}`,
       JSON.stringify(selectedProductData)
     );
-
-    // Si está en el chat, cerrar el chat antes de navegar
-    if (isInChat) {
-      closeChat();
-    }
 
     // Navega primero a la página multimedia con contenido Flixmedia
     router.push(`/productos/multimedia/${id}`);

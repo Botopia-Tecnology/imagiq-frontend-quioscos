@@ -197,9 +197,23 @@ export function mapApiProductToFrontend(product: ProductOrBundle): ProductCardPr
   }
 }
 
+// Categorías ocultas en quioscos (ej: "IM" = dispositivos móviles)
+const HIDDEN_CATS = new Set(
+  (process.env.NEXT_PUBLIC_HIDDEN_CATEGORIES || "")
+    .split(",")
+    .map((c) => c.trim().toUpperCase())
+    .filter(Boolean)
+);
+
 /**
  * Mapea un array de productos/bundles de la API a ProductCardProps[]
+ * Filtra automáticamente productos de categorías ocultas
  */
 export function mapApiProductsToFrontend(products: ProductOrBundle[]): ProductCardProps[] {
-  return products.map(mapApiProductToFrontend);
+  return products
+    .filter((p) => {
+      const cat = ("categoria" in p && typeof p.categoria === "string") ? p.categoria : "";
+      return !cat || !HIDDEN_CATS.has(cat.toUpperCase());
+    })
+    .map(mapApiProductToFrontend);
 }
