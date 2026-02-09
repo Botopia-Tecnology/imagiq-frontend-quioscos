@@ -83,9 +83,7 @@ export function useHeroBanner(): UseHeroBannerReturn {
         const mappedConfigs = banners.map(banner =>
           bannersService.mapBannerToHeroConfig(banner)
         );
-        // Quioscos: saltar los primeros 2 banners del hero
-        const quioscoConfigs = mappedConfigs.slice(2);
-        setConfigs(quioscoConfigs.length > 0 ? quioscoConfigs : [DEFAULT_HERO_CONFIG]);
+        setConfigs(mappedConfigs);
       } else {
         console.warn('[useHeroBanner] No banners found for placement "hero" - Using default config');
         setConfigs([DEFAULT_HERO_CONFIG]);
