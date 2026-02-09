@@ -4,6 +4,7 @@ import { Separator } from "@/components/ui/separator";
 import { Eye, EyeOff } from "lucide-react";
 import { useState, useEffect, useCallback } from "react";
 import { apiPost } from "@/lib/api-client";
+import { isAllowedEmailDomain, DOMAIN_ERROR_MESSAGE } from "@/utils/emailDomainValidation";
 
 interface PersonalInfoData {
   nombre: string;
@@ -50,6 +51,12 @@ export function PersonalInfoStep({ formData, onChange, disabled, onValidationCha
   const checkEmailAvailability = useCallback(async (email: string) => {
     if (!email || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
       setEmailError("");
+      return;
+    }
+
+    // Validar dominio permitido antes de consultar al backend
+    if (!isAllowedEmailDomain(email)) {
+      setEmailError(DOMAIN_ERROR_MESSAGE);
       return;
     }
 
@@ -301,7 +308,7 @@ export function PersonalInfoStep({ formData, onChange, disabled, onValidationCha
             id="email"
             type="email"
             inputMode="email"
-            placeholder="tu@email.com"
+            placeholder="tu@imagiq.com"
             value={formData.email}
             onChange={(e) => onChange({ email: e.target.value })}
             disabled={disabled}

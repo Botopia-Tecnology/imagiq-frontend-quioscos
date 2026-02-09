@@ -13,6 +13,15 @@ import { OTPStep } from "./components/OTPStep";
 import { AddressStep } from "./components/AddressStep";
 import { PaymentStep } from "./components/PaymentStep";
 import { apiPost } from "@/lib/api-client";
+import { isAllowedEmailDomain, DOMAIN_ERROR_MESSAGE } from "@/utils/emailDomainValidation";
+import Image from "next/image";
+import {
+  Card,
+  CardContent,
+  CardHeader,
+  CardTitle,
+  CardDescription,
+} from "@/components/ui/card";
 
 const STEPS = [
   { id: 1, name: "Información personal", required: true },
@@ -181,6 +190,10 @@ export default function CreateAccountPage() {
     }
     if (!formData.email || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(formData.email)) {
       setError("Correo electrónico inválido");
+      return false;
+    }
+    if (!isAllowedEmailDomain(formData.email)) {
+      setError(DOMAIN_ERROR_MESSAGE);
       return false;
     }
     if (!formData.telefono || formData.telefono.length !== 10) {
@@ -373,6 +386,7 @@ export default function CreateAccountPage() {
         // Guardar token y usuario - registro completado
         if (result.access_token && result.user) {
           localStorage.setItem("imagiq_token", result.access_token);
+          document.cookie = `imagiq_token=1; path=/; max-age=${60 * 60 * 24 * 30}; SameSite=Lax`;
           localStorage.setItem("imagiq_user", JSON.stringify(result.user));
 
           await login({
@@ -544,63 +558,72 @@ export default function CreateAccountPage() {
   };
 
   return (
-    <div className="min-h-screen bg-white flex justify-center p-4 pt-6">
-      <div className="w-full max-w-5xl">
-        {/* Mobile: Indicador arriba */}
-        <div className="md:hidden mb-6">
+    <div className="flex min-h-screen">
+      {/* Panel izquierdo - Branding (solo desktop) */}
+      <div className="hidden lg:flex lg:w-1/3 bg-black text-white flex-col justify-between p-10">
+        <div className="flex items-center gap-3">
+          <Image
+            src="/frame_white.png"
+            alt="ImagiQ"
+            width={40}
+            height={40}
+            priority
+          />
+          <span className="text-lg font-bold tracking-tight">ImagiQ Quioscos</span>
+        </div>
+
+        <div className="space-y-6">
+          {/* Indicador de pasos en el panel lateral */}
           <StepIndicator steps={STEPS} currentStep={currentStep} />
         </div>
 
-        {/* Desktop: Indicador a la izquierda + Contenido a la derecha */}
-        <div className="flex gap-8">
-          {/* Indicador vertical y login prompt en desktop */}
-          <div className="hidden md:flex md:flex-col flex-shrink-0 pt-2" style={{ width: '300px' }}>
-            {/* Términos y condiciones - Fijo arriba */}
-            <div className="text-xs text-gray-500 mb-8">
-              <p>
-                Al continuar, aceptas los{" "}
-                <a href="#" className="underline hover:text-gray-900">
-                  Términos de uso
-                </a>{" "}
-                y la{" "}
-                <a href="#" className="underline hover:text-gray-900">
-                  Política de privacidad
-                </a>
-              </p>
-            </div>
+        <div className="space-y-4">
+          <blockquote className="space-y-2">
+            <p className="text-lg leading-relaxed">
+              &ldquo;Crea tu cuenta corporativa para acceder a la plataforma.&rdquo;
+            </p>
+            <footer className="text-sm text-gray-400">Equipo ImagiQ</footer>
+          </blockquote>
+          <p className="text-xs text-gray-500">
+            Solo disponible para correos @botopia.tech, @imagiq.com o @imagiq.co
+          </p>
+        </div>
+      </div>
 
+      {/* Panel derecho - Formulario */}
+      <div className="flex-1 flex items-start justify-center p-4 pt-6 sm:p-6 overflow-y-auto">
+        <div className="w-full max-w-2xl space-y-6">
+          {/* Mobile: Logo + Indicador arriba */}
+          <div className="lg:hidden space-y-4">
+            <div className="flex justify-center">
+              <Image
+                src="/frame_black.png"
+                alt="ImagiQ"
+                width={48}
+                height={48}
+                priority
+              />
+            </div>
             <StepIndicator steps={STEPS} currentStep={currentStep} />
-
-            {/* Espaciador flexible */}
-            <div className="flex-grow" />
-
-            {/* Login prompt - Alineado al final */}
-            <div className="space-y-4 pb-6">
-              <div className="relative">
-                <Separator />
-                <span className="absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 bg-white px-3 text-xs text-gray-500 whitespace-nowrap">
-                  ¿Ya tienes cuenta?
-                </span>
-              </div>
-
-              <Button
-                type="button"
-                variant="outline"
-                onClick={() => {
-                  // Limpiar progreso al ir a login
-                  localStorage.removeItem("create_account_progress");
-                  router.push("/login");
-                }}
-                className="w-full"
-              >
-                Iniciar sesión
-              </Button>
-            </div>
           </div>
 
-          {/* Contenido principal */}
-          <div className="flex-1 space-y-6">
-            <div className="bg-white border border-gray-200 rounded-lg p-6 space-y-6">
+          <Card>
+            <CardHeader>
+              <CardTitle className="text-xl font-bold">
+                {currentStep === 1 && "Información personal"}
+                {currentStep === 2 && "Verificación"}
+                {currentStep === 3 && "Dirección de envío"}
+                {currentStep === 4 && "Método de pago"}
+              </CardTitle>
+              <CardDescription>
+                {currentStep === 1 && "Completa tus datos para crear tu cuenta corporativa"}
+                {currentStep === 2 && "Verifica tu identidad con el código enviado"}
+                {currentStep === 3 && "Agrega una dirección de envío (opcional)"}
+                {currentStep === 4 && "Configura tu método de pago (opcional)"}
+              </CardDescription>
+            </CardHeader>
+
+            <CardContent className="space-y-6">
               {renderStepContent()}
 
               {error && (
@@ -662,7 +685,7 @@ export default function CreateAccountPage() {
                     type="button"
                     onClick={handleNextStep}
                     disabled={
-                      isLoading || 
+                      isLoading ||
                       (currentStep === 1 && (hasEmailError || hasPhoneError || hasDocumentError)) ||
                       (currentStep === 2 && (!otpSent || otpCode.length !== 6))
                     }
@@ -681,43 +704,35 @@ export default function CreateAccountPage() {
                   </Button>
                 )}
               </div>
+            </CardContent>
+          </Card>
+
+          {/* Login prompt */}
+          <div className="text-center space-y-4">
+            <div className="text-xs text-gray-500 lg:hidden">
+              <p>
+                Solo disponible para correos @botopia.tech, @imagiq.com o @imagiq.co
+              </p>
             </div>
 
-            {/* Login prompt - Mobile only */}
-            <div className="md:hidden text-center space-y-4">
-              <div className="text-xs text-gray-500">
-                <p>
-                  Al continuar, aceptas los{" "}
-                  <a href="#" className="underline hover:text-gray-900">
-                    Términos de uso
-                  </a>{" "}
-                  y la{" "}
-                  <a href="#" className="underline hover:text-gray-900">
-                    Política de privacidad
-                  </a>
-                </p>
-              </div>
-
-              <div className="relative">
-                <Separator />
-                <span className="absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 bg-white px-4 text-xs text-gray-500">
-                  ¿Ya tienes cuenta?
-                </span>
-              </div>
-
-              <Button
-                type="button"
-                variant="outline"
-                onClick={() => {
-                  // Limpiar progreso al ir a login
-                  localStorage.removeItem("create_account_progress");
-                  router.push("/login");
-                }}
-                className="w-full"
-              >
-                Iniciar sesión
-              </Button>
+            <div className="relative">
+              <Separator />
+              <span className="absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 bg-white px-4 text-xs text-gray-500">
+                ¿Ya tienes cuenta?
+              </span>
             </div>
+
+            <Button
+              type="button"
+              variant="outline"
+              onClick={() => {
+                localStorage.removeItem("create_account_progress");
+                router.push("/login");
+              }}
+              className="w-full"
+            >
+              Iniciar sesión
+            </Button>
           </div>
         </div>
       </div>

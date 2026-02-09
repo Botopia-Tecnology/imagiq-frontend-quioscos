@@ -64,6 +64,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           const userData = JSON.parse(savedUser);
           setUser(userData);
           apiClient.setAuthToken(savedToken!);
+          // Sincronizar cookie para middleware
+          document.cookie = `imagiq_token=1; path=/; max-age=${60 * 60 * 24 * 30}; SameSite=Lax`;
 
           // ✅ NUEVO: Cargar dirección predeterminada si no está en localStorage
           const existingAddress = localStorage.getItem('checkout-address');
@@ -119,6 +121,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         // Si el token no es válido, limpiar sesión
         console.log('🗑️ [AuthContext] Limpiando sesión - token inválido o usuario faltante');
         localStorage.removeItem("imagiq_token");
+        document.cookie = "imagiq_token=; path=/; max-age=0";
         setUser(null);
       }
       setIsLoading(false);
@@ -156,6 +159,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     const token = localStorage.getItem("imagiq_token");
     if (token) {
       apiClient.setAuthToken(token);
+      // Sincronizar cookie para que el middleware pueda verificar la sesión
+      document.cookie = `imagiq_token=1; path=/; max-age=${60 * 60 * 24 * 30}; SameSite=Lax`;
     }
 
     // Disparar evento para que los componentes recalculen con el nuevo userId
@@ -269,6 +274,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     }
 
     apiClient.removeAuthToken();
+
+    // Borrar cookie de sesión para que el middleware redirija a login
+    document.cookie = "imagiq_token=; path=/; max-age=0";
 
     console.log('✅ [AuthContext] Logout completo - usuario deslogueado, direcciones limpiadas, carrito preservado');
 

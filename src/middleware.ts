@@ -125,10 +125,24 @@ export async function middleware(request: NextRequest) {
     pathname.startsWith("/_next") ||
     pathname.startsWith("/api") ||
     pathname.startsWith("/static") ||
-    pathname.includes(".") ||
-    pathname === "/"
+    pathname.includes(".")
   ) {
     return NextResponse.next();
+  }
+
+  // --- Protección de rutas: requiere autenticación ---
+  const PUBLIC_PATHS = new Set(["login", "register", "auth"]);
+  const firstSeg = pathname.split("/").filter(Boolean)[0] || "";
+
+  if (!PUBLIC_PATHS.has(firstSeg)) {
+    const token = request.cookies.get("imagiq_token");
+    if (!token) {
+      const loginUrl = new URL("/login", request.url);
+      if (pathname !== "/") {
+        loginUrl.searchParams.set("redirect", pathname);
+      }
+      return NextResponse.redirect(loginUrl);
+    }
   }
 
   // Extraer primer segmento
