@@ -657,7 +657,7 @@ export default function DynamicBannerClean({
                 {bannerMobileMedia}
               </div>
 
-              <div className="absolute inset-0 z-20">
+              <div className={`absolute left-0 right-0 bottom-0 z-20 ${fullBleedMobile ? 'top-[64px] md:top-0' : 'top-0'}`}>
                 {hasContentBlocks ? (
                   <>
                     {!forceMobileView && <ContentBlocksOverlay blocks={contentBlocks} isMobile={false} bannerLinkUrl={banner.link_url} />}
