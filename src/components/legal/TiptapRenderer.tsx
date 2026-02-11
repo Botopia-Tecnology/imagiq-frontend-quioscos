@@ -107,6 +107,8 @@ function renderNode(node: TiptapNode, index: number): React.ReactNode {
         ?.map((c) => c.text || '')
         .join('')
         .toLowerCase()
+        .normalize('NFD')
+        .replace(/[\u0300-\u036f]/g, '') // Remover diacríticos (acentos)
         .replace(/[^\w\s-]/g, '')
         .replace(/\s+/g, '-')
         .substring(0, 50);
@@ -286,43 +288,6 @@ export function TiptapRenderer({ content, className = '' }: TiptapRendererProps)
       {content.content.map((node, index) => renderNode(node, index))}
     </div>
   );
-}
-
-// Función helper para extraer secciones del contenido (para el sidebar)
-export function extractSectionsFromContent(
-  content: TiptapContent | null
-): { id: string; title: string; level: number }[] {
-  const sections: { id: string; title: string; level: number }[] = [];
-
-  if (!content || !content.content) {
-    return sections;
-  }
-
-  const traverse = (nodes: TiptapNode[]) => {
-    for (const node of nodes) {
-      if (node.type === 'heading' && node.attrs?.level && (node.attrs.level as number) <= 3) {
-        const text = node.content?.map((c) => c.text || '').join('') || '';
-        if (text) {
-          const id = text
-            .toLowerCase()
-            .replace(/[^\w\s-]/g, '')
-            .replace(/\s+/g, '-')
-            .substring(0, 50);
-          sections.push({
-            id,
-            title: text,
-            level: node.attrs.level as number,
-          });
-        }
-      }
-      if (node.content) {
-        traverse(node.content);
-      }
-    }
-  };
-
-  traverse(content.content);
-  return sections;
 }
 
 export default TiptapRenderer;
