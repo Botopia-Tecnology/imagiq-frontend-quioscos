@@ -36,8 +36,12 @@ export default function Step1Page() {
     // Si es kiosk (rol 5), limpiar datos de cliente anterior y enviar a step2
     const token = localStorage.getItem("imagiq_token");
     if (token && loggedUser?.email && userRole === 5) {
-      localStorage.removeItem('kiosk_client');
-      console.log("🏪 [STEP1] Usuario kiosk (rol 5), limpiando kiosk_client y yendo a step2");
+      localStorage.removeItem('kiosk_client_id');
+      localStorage.removeItem('kiosk_client'); // legacy key cleanup
+      localStorage.removeItem('checkout-address');
+      localStorage.removeItem('imagiq_default_address');
+      localStorage.removeItem('imagiq_candidate_stores_cache');
+      console.log("🏪 [STEP1] Usuario kiosk (rol 5), limpiando datos de cliente anterior y yendo a step2");
       router.push("/carrito/step2");
       return;
     }

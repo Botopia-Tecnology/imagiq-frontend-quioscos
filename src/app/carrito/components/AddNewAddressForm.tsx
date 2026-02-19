@@ -738,11 +738,14 @@ export default function AddNewAddressForm({
             userEmail = userInfo?.email || '';
           }
 
+          const userRole = user?.role ?? (user as any)?.rol;
+          const isKioskUser = userRole === 5;
           await syncAddress({
             address: shippingResponse,
             userEmail,
-            user,
-            loginFn: login,
+            // En kiosk, NO pasar user/loginFn para evitar que clearPreviousUserData borre checkout-address
+            user: isKioskUser ? undefined : user,
+            loginFn: isKioskUser ? undefined : login,
             fromHeader: true, // Forzar recálculo de tiendas al agregar nueva dirección
           });
         } catch (syncError) {

@@ -18,6 +18,7 @@ import {
   invalidateCacheOnAddressChange,
   clearGlobalCanPickUpCache,
 } from "../utils/globalCanPickUpCache";
+import { getUserId } from "../utils/getUserId";
 
 /**
  * Normaliza texto removiendo acentos y convirtiendo a minúsculas
@@ -137,12 +138,8 @@ function getInitialStoresFromCache(): CacheStoresData | null {
   if (typeof window === 'undefined') return null;
 
   try {
-    const storedUser = localStorage.getItem("imagiq_user");
-    let userId: string | undefined;
-    if (storedUser) {
-      const user = JSON.parse(storedUser);
-      userId = user.id || user.user_id;
-    }
+    // Usar getUserId que prioriza kiosk_client_id
+    const userId = getUserId() ?? undefined;
 
     if (!userId) return null;
 
@@ -192,7 +189,8 @@ function getInitialStoresFromCache(): CacheStoresData | null {
   }
 }
 
-export const useDelivery = () => {
+export const useDelivery = (options?: { kioskMode?: boolean }) => {
+  const kioskMode = options?.kioskMode ?? false;
   const { products } = useCart();
 
   // Inicializar estados desde caché si hay datos disponibles
@@ -360,7 +358,8 @@ export const useDelivery = () => {
     if (!explicitAddressId) {
       try {
         let savedAddress = globalThis.window?.localStorage.getItem("checkout-address");
-        if (!savedAddress || savedAddress === 'null' || savedAddress === 'undefined') {
+        // Kiosk: no usar imagiq_default_address como fallback (viene de BD)
+        if (!kioskMode && (!savedAddress || savedAddress === 'null' || savedAddress === 'undefined')) {
           savedAddress = globalThis.window?.localStorage.getItem("imagiq_default_address") || null;
         }
         if (savedAddress && savedAddress !== 'null' && savedAddress !== 'undefined') {
@@ -515,8 +514,9 @@ export const useDelivery = () => {
     };
   }, []);
 
-  // Cargar direcciones del usuario
+  // Cargar direcciones del usuario (skip en kiosk - el asesor siempre agrega nueva)
   useEffect(() => {
+    if (kioskMode) return;
     const userInfo = safeGetLocalStorage<{ id?: string; email?: string }>("imagiq_user", {});
     if (userInfo && (userInfo.id || userInfo.email)) {
       addressesService
@@ -527,7 +527,7 @@ export const useDelivery = () => {
           setAddresses([]);
         });
     }
-  }, []);
+  }, [kioskMode]);
 
   // Filtrar tiendas según búsqueda
   useEffect(() => {
@@ -556,6 +556,13 @@ export const useDelivery = () => {
         try {
           const saved = JSON.parse(savedAddress) as Address;
           if (saved.id) {
+            // Kiosk: solo cargar desde cache, sin enriquecer ni guardar en imagiq_default_address
+            if (kioskMode) {
+              setAddress(saved);
+              lastAddressIdRef.current = saved.id;
+              return;
+            }
+
             const needsEnrichment = !saved.localidad && !saved.barrio && !saved.complemento;
 
             if (needsEnrichment && addresses.length > 0) {

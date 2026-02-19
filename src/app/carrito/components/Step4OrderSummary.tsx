@@ -10,6 +10,7 @@ import {
   getFullCandidateStoresResponseFromCache,
   setGlobalCanPickUpCache,
 } from "../utils/globalCanPickUpCache";
+import { getUserId } from "../utils/getUserId";
 
 interface ShippingVerification {
   envio_imagiq: boolean;
@@ -180,16 +181,8 @@ export default function Step4OrderSummary({
     if (typeof window === 'undefined') return null;
 
     try {
-      // 1. Obtener usuario
-      // IMPORTANTE: Obtener userId de forma consistente usando la utilidad centralizada
-      const storedUser = localStorage.getItem("imagiq_user");
-      let userId: string | undefined;
-      if (storedUser) {
-        const user = JSON.parse(storedUser);
-        userId = user.id || user.user_id;
-      }
-
-      // console.log('🔍 [Step4OrderSummary INIT globalCanPickUp] userId:', userId);
+      // 1. Obtener usuario (usar getUserId que prioriza kiosk_client_id)
+      const userId = getUserId() ?? undefined;
 
       if (!userId) return null;
 
@@ -294,16 +287,10 @@ export default function Step4OrderSummary({
     }
 
     try {
-      // Repetir lógica para consistencia
-      const storedUser = localStorage.getItem("imagiq_user");
-      let userId: string | undefined;
-      if (storedUser) {
-        const user = JSON.parse(storedUser);
-        userId = user.id || user.user_id;
-      }
+      // Obtener userId (usar getUserId que prioriza kiosk_client_id)
+      const userId = getUserId() ?? undefined;
 
       if (!userId) {
-        // console.log('🔍 [Step4OrderSummary INIT isLoadingCanPickUp] -> false (no userId)');
         return false; // Sin usuario no podemos validar, no bloquear
       }
 
@@ -535,9 +522,9 @@ export default function Step4OrderSummary({
           const userRole = userData?.role ?? userData?.rol;
 
           // Permitir cálculo para:
-          // - rol 2 (registrado), rol 3 (invitado), rol 4
+          // - rol 2 (registrado), rol 3 (invitado), rol 4, rol 5 (kiosk)
           // - O si el rol es undefined pero hay userId (usuario en proceso de registro/checkout)
-          if (userRole === 2 || userRole === 3 || userRole === 4 || (userRole === undefined && userId)) {
+          if (userRole === 2 || userRole === 3 || userRole === 4 || userRole === 5 || (userRole === undefined && userId)) {
             shouldCalculateForUser = true;
           }
         } else {
@@ -781,16 +768,9 @@ export default function Step4OrderSummary({
     const updateDebugInfoFromCache = () => {
       // console.log('🔍 [Step4OrderSummary] updateDebugInfoFromCache llamada');
       try {
-        // Obtener userId
-        const storedUser = localStorage.getItem("imagiq_user");
-        let userId: string | undefined;
-        if (storedUser) {
-          const user = JSON.parse(storedUser);
-          userId = user.id || user.user_id;
-        }
-        // console.log('🔍 [Step4OrderSummary] userId:', userId);
+        // Obtener userId (usar getUserId que prioriza kiosk_client_id)
+        const userId = getUserId() ?? undefined;
         if (!userId) {
-          // console.log('🔍 [Step4OrderSummary] No userId, saliendo');
           return;
         }
 

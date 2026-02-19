@@ -61,35 +61,31 @@ export class AddressesService {
 
   /**
    * Obtiene el userId correcto para operaciones de dirección en modo kiosk
-   * Prioridad: kiosk_client_id > kiosk_client.userId > imagiq_user.id > imagiq_user.email > guest ID
+   * Prioridad: kiosk_client_id > imagiq_user.id > imagiq_user.email > guest ID
    */
   private getKioskUserId(): { userId: string; source: string } | null {
-    // 1. Verificar kiosk_client_id (más confiable, se establece como key separada)
-    const kioskClientId = typeof window !== 'undefined' ? localStorage.getItem("kiosk_client_id") : null;
-    // 2. Verificar kiosk_client object
-    const kioskClient = safeGetLocalStorage<{ userId?: string }>("kiosk_client", {});
-    // 3. Verificar imagiq_user
+    // 1. Verificar kiosk_client_id (objeto JSON con datos del cliente)
+    const kioskClientIdRaw = typeof window !== 'undefined' ? localStorage.getItem("kiosk_client_id") : null;
+    let kioskClientId: string | null = null;
+    if (kioskClientIdRaw) {
+      try {
+        const parsed = JSON.parse(kioskClientIdRaw);
+        kioskClientId = parsed?.userId ?? null;
+      } catch {
+        kioskClientId = null;
+      }
+    }
+    // 2. Verificar imagiq_user
     const userInfo = safeGetLocalStorage<{ id?: string; email?: string }>("imagiq_user", {});
 
-    // Log completo del estado para debugging
+    // Log del estado para debugging
     console.log("🔍 [addressesService] Estado de localStorage:", {
       kiosk_client_id: kioskClientId,
-      kiosk_client_userId: kioskClient.userId,
       imagiq_user_id: userInfo.id,
-      match: kioskClientId === kioskClient.userId ? "✅ OK" : "⚠️ MISMATCH",
     });
 
-    // Prioridad: kiosk_client_id > kiosk_client.userId > imagiq_user.id > imagiq_user.email
     if (kioskClientId) {
-      if (kioskClient.userId && kioskClientId !== kioskClient.userId) {
-        console.warn("⚠️ [addressesService] MISMATCH: kiosk_client_id =", kioskClientId, "vs kiosk_client.userId =", kioskClient.userId);
-        console.warn("⚠️ [addressesService] Usando kiosk_client_id como fuente confiable");
-      }
       return { userId: kioskClientId, source: "kiosk_client_id" };
-    }
-
-    if (kioskClient.userId) {
-      return { userId: kioskClient.userId, source: "kiosk_client.userId" };
     }
 
     if (userInfo.id) {
@@ -431,7 +427,7 @@ export class AddressesService {
     try {
       const requestData = { ...addressData };
 
-      // Usar getKioskUserId para obtener el userId correcto (incluye kiosk_client)
+      // Usar getKioskUserId para obtener el userId correcto (incluye kiosk_client_id)
       const kioskUser = this.getKioskUserId();
       if (kioskUser) {
         requestData.usuarioId = kioskUser.userId;

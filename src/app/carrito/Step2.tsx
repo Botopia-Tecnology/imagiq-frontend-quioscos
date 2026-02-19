@@ -75,6 +75,18 @@ export default function Step2({
     } catch { return false; }
   })();
 
+  // Kiosk: limpiar datos de cliente anterior al entrar a Step2
+  useEffect(() => {
+    if (isKiosk) {
+      localStorage.removeItem('kiosk_client_id');
+      localStorage.removeItem('kiosk_client'); // legacy key cleanup
+      localStorage.removeItem('checkout-address');
+      localStorage.removeItem('imagiq_default_address');
+      localStorage.removeItem('imagiq_candidate_stores_cache');
+      console.log("🏪 [STEP2] Kiosk detectado, limpiando datos de cliente anterior");
+    }
+  }, [isKiosk]);
+
   // Estado para formulario de invitado
   // Formulario de invitado: incluye dirección línea uno y ciudad
   const [guestForm, setGuestForm] = useState({

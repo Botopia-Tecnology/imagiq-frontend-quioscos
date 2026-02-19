@@ -18,7 +18,7 @@ import { toast } from "sonner";
 import { DBCard, DecryptedCardData } from "@/features/profile/types";
 import { encryptionService } from "@/lib/encryption";
 import CardBrandLogo from "@/components/ui/CardBrandLogo";
-import { payWithAddi, payWithCard, payWithPse, fetchBanks } from "./utils";
+import { payWithAddi, payWithCard, payWithPse, fetchBanks, kioskPayWithPse, kioskPayWithAddi } from "./utils";
 import { useCart } from "@/hooks/useCart";
 import { useCardsCache } from "./hooks/useCardsCache";
 import { useDelivery } from "./hooks/useDelivery";
@@ -149,6 +149,9 @@ export default function Step7({ onBack }: Step7Props) {
       return total;
     }, 0);
   }, [products]);
+
+  // Kiosk payment link sent state
+  const [kioskPaymentLinkSent, setKioskPaymentLinkSent] = useState<{ email: string } | null>(null);
 
   const [error, setError] = useState<string | string[] | null>(null);
   const [isLoadingShippingMethod, setIsLoadingShippingMethod] = useState(false);
@@ -1258,7 +1261,7 @@ export default function Step7({ onBack }: Step7Props) {
             // Se eliminó la limpieza manual de artefactos 3DS a petición del usuario
             // para evitar recargas de página o comportamientos inesperados de la librería.
 
-            localStorage.removeItem('kiosk_client');
+            localStorage.removeItem('kiosk_client_id');
             router.push(`/verify-purchase/${orderId}`);
           } else {
             console.warn("⚠️ [Step7] Éxito en 3DS pero no se encontró pending_order_id");
@@ -1699,7 +1702,7 @@ export default function Step7({ onBack }: Step7Props) {
             userInfo: {
               direccionId: checkoutAddress?.id || "",
               userId: (() => {
-                const kc = localStorage.getItem('kiosk_client');
+                const kc = localStorage.getItem('kiosk_client_id');
                 if (kc) { try { const p = JSON.parse(kc); if (p?.userId) return p.userId; } catch { /* ignore */ } }
                 return authContext.user?.id || String(loggedUser?.id);
               })(),
@@ -1769,7 +1772,7 @@ export default function Step7({ onBack }: Step7Props) {
           }
 
           // SI NO REQUIERE 3DS, CONTINUAR CON REDIRECCIÓN NORMAL
-          localStorage.removeItem('kiosk_client');
+          localStorage.removeItem('kiosk_client_id');
           router.push(res.redirectionUrl);
           break;
         }
@@ -1783,7 +1786,12 @@ export default function Step7({ onBack }: Step7Props) {
           //           console.log("🏦 [Step7] Banco seleccionado:", paymentData.bank, "-", paymentData.bankName);
           //           console.log("🏦 [Step7] ==========================================");
 
-          const res = await payWithPse({
+          // Detect kiosk mode for PSE
+          const kioskClientPse = (() => {
+            try { const kc = localStorage.getItem('kiosk_client_id'); return kc ? JSON.parse(kc) : null; } catch { return null; }
+          })();
+
+          const psePaymentData = {
             totalAmount: String(calculations.total),
             shippingAmount: String(calculations.shipping),
             currency: "COP",
@@ -1815,20 +1823,38 @@ export default function Step7({ onBack }: Step7Props) {
             userInfo: {
               direccionId: checkoutAddress?.id || "",
               userId: (() => {
-                const kc = localStorage.getItem('kiosk_client');
-                if (kc) { try { const p = JSON.parse(kc); if (p?.userId) return p.userId; } catch { /* ignore */ } }
+                if (kioskClientPse?.userId) return kioskClientPse.userId;
                 return authContext.user?.id || String(loggedUser?.id);
               })(),
             },
             informacion_facturacion,
             beneficios: buildBeneficios(),
             bankName: paymentData.bankName || "",
-          });
+          };
+
+          // Kiosk mode: use separate endpoint that sends link via email
+          if (kioskClientPse?.email) {
+            const kioskRes = await kioskPayWithPse({
+              ...psePaymentData,
+              kioskCustomerEmail: kioskClientPse.email,
+            });
+            if ("error" in kioskRes) {
+              setError(kioskRes.message);
+              throw new Error(kioskRes.message);
+            }
+            localStorage.removeItem('kiosk_client_id');
+            setKioskPaymentLinkSent({ email: kioskRes.email });
+            setIsProcessing(false);
+            break;
+          }
+
+          // Normal flow: redirect to bank
+          const res = await payWithPse(psePaymentData);
           if ("error" in res) {
             setError(res.message);
             throw new Error(res.message);
           }
-          localStorage.removeItem('kiosk_client');
+          localStorage.removeItem('kiosk_client_id');
           router.push(res.redirectUrl);
           break;
         }
@@ -1841,7 +1867,12 @@ export default function Step7({ onBack }: Step7Props) {
           //           console.log("💰 [Step7] codigo_bodega:", codigo_bodega);
           //           console.log("💰 [Step7] ==========================================");
 
-          const res = await payWithAddi({
+          // Detect kiosk mode for Addi
+          const kioskClientAddi = (() => {
+            try { const kc = localStorage.getItem('kiosk_client_id'); return kc ? JSON.parse(kc) : null; } catch { return null; }
+          })();
+
+          const addiPaymentData = {
             totalAmount: String(calculations.total),
             shippingAmount: String(calculations.shipping),
             currency: "COP",
@@ -1871,19 +1902,37 @@ export default function Step7({ onBack }: Step7Props) {
             userInfo: {
               direccionId: checkoutAddress?.id || "",
               userId: (() => {
-                const kc = localStorage.getItem('kiosk_client');
-                if (kc) { try { const p = JSON.parse(kc); if (p?.userId) return p.userId; } catch { /* ignore */ } }
+                if (kioskClientAddi?.userId) return kioskClientAddi.userId;
                 return authContext.user?.id || String(loggedUser?.id);
               })(),
             },
             informacion_facturacion,
             beneficios: buildBeneficios(),
-          });
+          };
+
+          // Kiosk mode: use separate endpoint that sends link via email
+          if (kioskClientAddi?.email) {
+            const kioskRes = await kioskPayWithAddi({
+              ...addiPaymentData,
+              kioskCustomerEmail: kioskClientAddi.email,
+            });
+            if ("error" in kioskRes) {
+              setError(kioskRes.message);
+              throw new Error(kioskRes.message);
+            }
+            localStorage.removeItem('kiosk_client_id');
+            setKioskPaymentLinkSent({ email: kioskRes.email });
+            setIsProcessing(false);
+            break;
+          }
+
+          // Normal flow: redirect to Addi
+          const res = await payWithAddi(addiPaymentData);
           if ("error" in res) {
             setError(res.message);
             throw new Error(res.message);
           }
-          localStorage.removeItem('kiosk_client');
+          localStorage.removeItem('kiosk_client_id');
           router.push(res.redirectUrl);
           break;
         }
@@ -2016,6 +2065,43 @@ export default function Step7({ onBack }: Step7Props) {
 
     return cardInfo.availableInstallments.includes(installments);
   };
+
+  // Kiosk payment link sent confirmation screen
+  if (kioskPaymentLinkSent) {
+    return (
+      <div className="min-h-screen w-full flex items-center justify-center bg-gray-50">
+        <div className="max-w-lg w-full mx-4 bg-white rounded-2xl shadow-lg p-8 text-center">
+          <div className="w-20 h-20 bg-blue-100 rounded-full flex items-center justify-center mx-auto mb-6">
+            <svg className="w-10 h-10 text-blue-600" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 8l7.89 5.26a2 2 0 002.22 0L21 8M5 19h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z" />
+            </svg>
+          </div>
+          <h2 className="text-2xl font-bold text-gray-900 mb-3">
+            Enlace de pago enviado
+          </h2>
+          <p className="text-gray-600 mb-2">
+            Hemos enviado un enlace de pago a:
+          </p>
+          <p className="text-lg font-semibold text-blue-600 mb-6">
+            {kioskPaymentLinkSent.email}
+          </p>
+          <p className="text-sm text-gray-500 mb-8">
+            El cliente puede completar el pago desde su correo electrónico.
+            Revisa tu bandeja de entrada y haz clic en el enlace para finalizar la compra.
+          </p>
+          <button
+            onClick={() => {
+              localStorage.removeItem('kiosk_client_id');
+              router.push('/');
+            }}
+            className="w-full bg-blue-600 text-white py-3 px-6 rounded-lg font-semibold hover:bg-blue-700 transition-colors"
+          >
+            Volver al inicio
+          </button>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="min-h-screen w-full pb-40 md:pb-0">

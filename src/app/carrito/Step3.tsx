@@ -74,7 +74,7 @@ export default function Step3({
     availableStoresWhenCanPickUpFalse,
     lastResponse,
     setAddresses, // New function from useDelivery
-  } = useDelivery();
+  } = useDelivery({ kioskMode: isKiosk });
 
   // DEBUG: Verificar valores retornados por useDelivery en Step3
   React.useEffect(() => {
@@ -93,7 +93,7 @@ export default function Step3({
   const kioskClient = React.useMemo(() => {
     if (!isKiosk || typeof window === "undefined") return null;
     try {
-      const saved = localStorage.getItem("kiosk_client");
+      const saved = localStorage.getItem("kiosk_client_id");
       if (saved && saved !== "null") {
         const data = JSON.parse(saved);
         if (data?.userId) return data as {
@@ -110,12 +110,14 @@ export default function Step3({
     return null;
   }, [isKiosk]);
 
-  // Kiosk: forzar método de envío a domicilio
+  // Kiosk: forzar método de envío a domicilio y limpiar solo datos de BD (no cache de sesión)
   React.useEffect(() => {
     if (isKiosk) {
       setDeliveryMethod("domicilio");
       if (typeof window !== "undefined") {
         localStorage.setItem("checkout-delivery-method", "domicilio");
+        // Solo limpiar imagiq_default_address (viene de BD), NO checkout-address (cache de sesión actual)
+        localStorage.removeItem("imagiq_default_address");
       }
     }
   }, [isKiosk, setDeliveryMethod]);
@@ -1245,8 +1247,9 @@ export default function Step3({
         await syncAddress({
           address: newAddress,
           userEmail: user?.email,
-          user,
-          loginFn: login,
+          // En kiosk, NO pasar user/loginFn para evitar que clearPreviousUserData borre checkout-address
+          user: isKiosk ? undefined : user,
+          loginFn: isKiosk ? undefined : login,
           fromHeader: true,
         });
         console.log('✅ [Step3] Dirección sincronizada correctamente');
