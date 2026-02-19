@@ -308,8 +308,9 @@ export default function Step4OrderSummary({
         savedAddress = localStorage.getItem("imagiq_default_address");
       }
 
-      // Fallback 2: defaultAddress dentro de imagiq_user (ya lo tenemos parseado arriba)
+      // Fallback 2: defaultAddress dentro de imagiq_user
       if (!savedAddress || savedAddress === "undefined" || savedAddress === "null") {
+        const storedUser = localStorage.getItem("imagiq_user");
         if (storedUser) {
           const userData = JSON.parse(storedUser);
           if (userData?.defaultAddress?.id) {
