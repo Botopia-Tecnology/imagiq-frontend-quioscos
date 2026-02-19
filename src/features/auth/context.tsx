@@ -65,7 +65,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           setUser(userData);
           apiClient.setAuthToken(savedToken!);
           // Sincronizar cookie para middleware
-          document.cookie = `imagiq_token=1; path=/; max-age=${60 * 60 * 24 * 30}; SameSite=Lax`;
+          document.cookie = `imagiq_token=1; path=/; max-age=${60 * 60 * 24}; SameSite=Lax`;
 
           // ✅ NUEVO: Cargar dirección predeterminada si no está en localStorage
           const existingAddress = localStorage.getItem('checkout-address');
@@ -160,7 +160,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     if (token) {
       apiClient.setAuthToken(token);
       // Sincronizar cookie para que el middleware pueda verificar la sesión
-      document.cookie = `imagiq_token=1; path=/; max-age=${60 * 60 * 24 * 30}; SameSite=Lax`;
+      document.cookie = `imagiq_token=1; path=/; max-age=${60 * 60 * 24}; SameSite=Lax`;
     }
 
     // Disparar evento para que los componentes recalculen con el nuevo userId

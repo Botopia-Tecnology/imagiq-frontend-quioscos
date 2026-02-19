@@ -153,7 +153,14 @@ export default function Step3Page() {
       // Step3 es para TODOS los usuarios autenticados, pueden agregar/seleccionar dirección aquí
       if (token && userToCheck) {
         const userRole = (userToCheck as User & { rol?: number }).rol ?? (userToCheck as User).role;
-        
+
+        // Kiosk (rol 5): permitir acceso directo sin verificar candidate-stores cache
+        if (userRole === 5) {
+          console.log("🏪 [STEP3] Usuario kiosk (rol 5), permitiendo acceso directo");
+          setIsChecking(false);
+          return;
+        }
+
         // 🚨 CRÍTICO: Verificar que exista caché de candidate-stores antes de permitir acceso
         const hasCandidateStoresCache = checkCandidateStoresCache(userToCheck.id);
         

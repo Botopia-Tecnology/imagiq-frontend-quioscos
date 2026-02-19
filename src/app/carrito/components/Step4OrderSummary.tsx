@@ -506,6 +506,9 @@ export default function Step4OrderSummary({
   // Se ejecuta cuando el componente se monta Y cuando el caché se actualiza desde useDelivery
   // IMPORTANTE: Esta función SOLO lee del caché, NO hace llamadas al endpoint
   const fetchGlobalCanPickUp = React.useCallback(async () => {
+    // Si no se debe calcular canPickUp (e.g. kiosk), no hacer nada
+    if (!shouldCalculateCanPickUp) return;
+
     // Generar ID único para esta ejecución y actualizar ref para evitar race conditions
     const requestId = Date.now();
     lastRequestIdRef.current = requestId;
@@ -1566,15 +1569,8 @@ export default function Step4OrderSummary({
               <div className="flex justify-between">
                 <span>canPickUp (endpoint):</span>
                 <span className="font-mono font-bold">
-                  {isLoadingCanPickUp && shouldCalculateCanPickUp ? (
-                    <span className="text-blue-600 animate-pulse">⏳ calculando...</span>
-                  ) : globalCanPickUp === null ? (
-                    // Mostrar "no aplica" solo cuando no tiene dirección
-                    hasDefaultAddress === false ? (
-                      <span className="text-gray-500">➖ no aplica</span>
-                    ) : (
-                      <span className="text-orange-600">🔄 calculando...</span>
-                    )
+                  {globalCanPickUp === null ? (
+                    <span className="text-gray-500">null</span>
                   ) : globalCanPickUp ? (
                     <span className="text-green-600">✅ true</span>
                   ) : (

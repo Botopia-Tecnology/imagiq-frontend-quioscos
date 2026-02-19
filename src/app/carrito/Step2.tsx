@@ -14,6 +14,7 @@ import Step4OrderSummary from "./components/Step4OrderSummary";
 import TradeInCompletedSummary from "@/app/productos/dispositivos-moviles/detalles-producto/estreno-y-entrego/TradeInCompletedSummary";
 import TradeInModal from "@/app/productos/dispositivos-moviles/detalles-producto/estreno-y-entrego/TradeInModal";
 import AddNewAddressForm from "./components/AddNewAddressForm";
+import KioskClientForm from "./components/KioskClientForm";
 import type { Address } from "@/types/address";
 import { OTPStep } from "@/app/login/create-account/components/OTPStep";
 import {
@@ -62,6 +63,17 @@ export default function Step2({
   // Usar el hook centralizado useCart
   const { products: cartProducts, calculations } = useCart();
   const router = useRouter();
+
+  // Detectar si es kiosk (rol 5)
+  const isKiosk = (() => {
+    if (typeof window === "undefined") return false;
+    try {
+      const u = localStorage.getItem("imagiq_user");
+      if (!u) return false;
+      const parsed = JSON.parse(u);
+      return (parsed?.role ?? parsed?.rol) === 5;
+    } catch { return false; }
+  })();
 
   // Estado para formulario de invitado
   // Formulario de invitado: incluye dirección línea uno y ciudad
@@ -821,6 +833,9 @@ export default function Step2({
   };
   // IMPORTANTE: Cargar datos del usuario invitado desde localStorage al montar
   useEffect(() => {
+    // Kiosk: no restaurar datos de invitado
+    if (isKiosk) return;
+
     // Primero verificar si hay un proceso OTP en curso (sessionStorage)
     const otpProcess = sessionStorage.getItem("guest-otp-process");
     if (otpProcess) {
@@ -881,6 +896,9 @@ export default function Step2({
 
   // useEffect para solicitar geolocalización automáticamente cuando aparece el formulario de dirección
   useEffect(() => {
+    // Kiosk: no solicitar geolocalización
+    if (isKiosk) return;
+
     // Solo ejecutar si:
     // 1. El usuario se registró como invitado
     // 2. NO ha agregado dirección aún
@@ -1605,6 +1623,17 @@ export default function Step2({
 
     verifyTradeIn();
   }, [cartProducts]);
+
+  // Si es kiosk, renderizar formulario de cliente dedicado
+  if (isKiosk) {
+    return (
+      <KioskClientForm
+        onClientReady={(clientUserId) => {
+          if (onContinue) onContinue();
+        }}
+      />
+    );
+  }
 
   return (
     <div className="w-full bg-white flex flex-col items-center py-8 px-2 md:px-0 pb-40 md:pb-16 relative">

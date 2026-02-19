@@ -179,10 +179,7 @@ export default function Step7({ onBack }: Step7Props) {
     availableStoresWhenCanPickUpFalse,
     filteredStores,
     availableCities,
-  } = useDelivery({
-    canFetchFromEndpoint: false, // NO hacer peticiones, solo leer caché
-    onlyReadCache: true          // Solo lectura del caché
-  });
+  } = useDelivery();
 
   // Estado para el modal de registro de contraseña
   const [showPasswordModal, setShowPasswordModal] = useState(false);
@@ -1261,6 +1258,7 @@ export default function Step7({ onBack }: Step7Props) {
             // Se eliminó la limpieza manual de artefactos 3DS a petición del usuario
             // para evitar recargas de página o comportamientos inesperados de la librería.
 
+            localStorage.removeItem('kiosk_client');
             router.push(`/verify-purchase/${orderId}`);
           } else {
             console.warn("⚠️ [Step7] Éxito en 3DS pero no se encontró pending_order_id");
@@ -1700,9 +1698,11 @@ export default function Step7({ onBack }: Step7Props) {
             shippingAmount: String(calculations.shipping),
             userInfo: {
               direccionId: checkoutAddress?.id || "",
-              userId:
-                authContext.user?.id ||
-                String(loggedUser?.id),
+              userId: (() => {
+                const kc = localStorage.getItem('kiosk_client');
+                if (kc) { try { const p = JSON.parse(kc); if (p?.userId) return p.userId; } catch { /* ignore */ } }
+                return authContext.user?.id || String(loggedUser?.id);
+              })(),
             },
             // Pass cardTokenId only if savedCard exists
             cardTokenId: paymentData.savedCard?.id || "",
@@ -1769,6 +1769,7 @@ export default function Step7({ onBack }: Step7Props) {
           }
 
           // SI NO REQUIERE 3DS, CONTINUAR CON REDIRECCIÓN NORMAL
+          localStorage.removeItem('kiosk_client');
           router.push(res.redirectionUrl);
           break;
         }
@@ -1813,9 +1814,11 @@ export default function Step7({ onBack }: Step7Props) {
             codigo_bodega,
             userInfo: {
               direccionId: checkoutAddress?.id || "",
-              userId:
-                authContext.user?.id ||
-                String(loggedUser?.id),
+              userId: (() => {
+                const kc = localStorage.getItem('kiosk_client');
+                if (kc) { try { const p = JSON.parse(kc); if (p?.userId) return p.userId; } catch { /* ignore */ } }
+                return authContext.user?.id || String(loggedUser?.id);
+              })(),
             },
             informacion_facturacion,
             beneficios: buildBeneficios(),
@@ -1825,6 +1828,7 @@ export default function Step7({ onBack }: Step7Props) {
             setError(res.message);
             throw new Error(res.message);
           }
+          localStorage.removeItem('kiosk_client');
           router.push(res.redirectUrl);
           break;
         }
@@ -1866,9 +1870,11 @@ export default function Step7({ onBack }: Step7Props) {
             codigo_bodega,
             userInfo: {
               direccionId: checkoutAddress?.id || "",
-              userId:
-                authContext.user?.id ||
-                String(loggedUser?.id),
+              userId: (() => {
+                const kc = localStorage.getItem('kiosk_client');
+                if (kc) { try { const p = JSON.parse(kc); if (p?.userId) return p.userId; } catch { /* ignore */ } }
+                return authContext.user?.id || String(loggedUser?.id);
+              })(),
             },
             informacion_facturacion,
             beneficios: buildBeneficios(),
@@ -1877,6 +1883,7 @@ export default function Step7({ onBack }: Step7Props) {
             setError(res.message);
             throw new Error(res.message);
           }
+          localStorage.removeItem('kiosk_client');
           router.push(res.redirectUrl);
           break;
         }

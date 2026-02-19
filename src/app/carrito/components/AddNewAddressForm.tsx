@@ -47,6 +47,7 @@ interface AddNewAddressFormProps {
   skipSetDefault?: boolean; // Si es true, NO establece la dirección como predeterminada (útil para Step6 facturación)
   billingOnly?: boolean; // Si es true, solo muestra paso 1 y usa nombre "Dirección de facturación" automáticamente
   headerTitle?: string; // Título opcional para mostrar junto al indicador de pasos
+  skipCoverageValidation?: boolean; // Si es true, NO valida cobertura (útil para kiosk)
 }
 
 export default function AddNewAddressForm({
@@ -65,6 +66,7 @@ export default function AddNewAddressForm({
   skipSetDefault = false,
   billingOnly = false,
   headerTitle,
+  skipCoverageValidation = false,
 }: AddNewAddressFormProps) {
   const { user, login } = useAuthContext();
   const [isLoading, setIsLoading] = useState(false);
@@ -553,6 +555,20 @@ export default function AddNewAddressForm({
           nomenclature: selectedAddress.nomenclature,
         }),
       };
+
+      // DEBUG: Log de datos antes de crear la request
+      console.log('🏗️ [AddNewAddressForm] Construyendo request de dirección:', {
+        ciudad: formData.ciudad,
+        ciudadIsDANE: formData.ciudad && /^\d+$/.test(formData.ciudad),
+        departamento: formData.departamento,
+        nombreCalle: formData.nombreCalle,
+        numeroPrincipal: formData.numeroPrincipal,
+        tipoDireccion: formData.tipoDireccion,
+        placeId: selectedAddress?.placeId,
+        formattedAddress: selectedAddress?.formattedAddress,
+        latitude: latitude,
+        longitude: longitude,
+      });
 
       // Crear dirección de envío (o facturación si billingOnly)
       const shippingAddressRequest: CreateAddressRequest = {

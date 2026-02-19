@@ -25,6 +25,7 @@ import {
   getGlobalCanPickUpFromCache,
   buildGlobalCanPickUpKey,
 } from "./utils/globalCanPickUpCache";
+import { User, Phone, Mail, FileText } from "lucide-react";
 
 export default function Step3({
   onBack,
@@ -37,6 +38,12 @@ export default function Step3({
   const { products, calculations } = useCart();
   const { trackAddPaymentInfo } = useAnalyticsWithUser();
   const { user, login } = useAuthContext();
+
+  // Detectar si es kiosk (rol 5) - solo domicilio, no pickup
+  const isKiosk = (() => {
+    const userRole = user?.role ?? (user as unknown as { rol?: number })?.rol;
+    return userRole === 5;
+  })();
 
   // OPTIMIZACIÓN: Step3 prefiere leer del caché, pero permite fetch como fallback
   // Si viene de Step1, ya debería existir el caché de candidate-stores
@@ -67,10 +74,7 @@ export default function Step3({
     availableStoresWhenCanPickUpFalse,
     lastResponse,
     setAddresses, // New function from useDelivery
-  } = useDelivery({
-    canFetchFromEndpoint: true, // ✅ Permitir fetch como fallback si el caché está vacío
-    onlyReadCache: false, // ✅ Intentar caché primero, pero permitir fetch si está vacío
-  });
+  } = useDelivery();
 
   // DEBUG: Verificar valores retornados por useDelivery en Step3
   React.useEffect(() => {
@@ -85,11 +89,45 @@ export default function Step3({
 //     });
   }, [canPickUp, stores.length, storesLoading, availableStoresWhenCanPickUpFalse.length, availableCities.length, deliveryMethod, address]);
 
+  // Kiosk: leer datos del cliente desde localStorage
+  const kioskClient = React.useMemo(() => {
+    if (!isKiosk || typeof window === "undefined") return null;
+    try {
+      const saved = localStorage.getItem("kiosk_client");
+      if (saved && saved !== "null") {
+        const data = JSON.parse(saved);
+        if (data?.userId) return data as {
+          userId: string;
+          email: string;
+          nombre: string;
+          apellido: string;
+          celular: string;
+          tipo_documento: string;
+          cedula: string;
+        };
+      }
+    } catch { /* ignore */ }
+    return null;
+  }, [isKiosk]);
+
+  // Kiosk: forzar método de envío a domicilio
+  React.useEffect(() => {
+    if (isKiosk) {
+      setDeliveryMethod("domicilio");
+      if (typeof window !== "undefined") {
+        localStorage.setItem("checkout-delivery-method", "domicilio");
+      }
+    }
+  }, [isKiosk, setDeliveryMethod]);
+
   // Hook para precarga de tarjetas y zero interest
   const { preloadCards, preloadZeroInterest } = useCardsCache();
 
   // Precargar tarjetas y zero interest en segundo plano al entrar al Step3
   React.useEffect(() => {
+    // Kiosk: no precargar tarjetas del kiosk (se usarán las del cliente después)
+    if (isKiosk) return;
+
     const preloadData = async () => {
       // Primero precargar las tarjetas
       await preloadCards();
@@ -219,16 +257,23 @@ export default function Step3({
 
   // Marcar como completado después de un breve delay para permitir que useDelivery haga su trabajo
   React.useEffect(() => {
+    // Kiosk: no necesita completar carga inicial de stores/canPickUp
+    if (isKiosk) return;
+
     const timer = setTimeout(() => {
       hasCompletedInitialLoadRef.current = true;
     }, 1000); // 1 segundo es suficiente para que useDelivery complete la carga inicial
 
     return () => clearTimeout(timer);
-  }, []);
+  }, [isKiosk]);
 
   // IMPORTANTE: Validar que haya dirección al cargar Step3 SOLO para usuarios invitados
   // Usuarios regulares (rol 2) pueden agregar dirección directamente en step3
+  // Kiosk: no redirigir, el kiosk agrega dirección aquí mismo
   React.useEffect(() => {
+    // Kiosk: no validar dirección al cargar, el usuario la agrega aquí
+    if (isKiosk) return;
+
     // Esperar un momento para que useDelivery cargue la dirección
     const checkAddress = setTimeout(() => {
       // Verificar el rol del usuario
@@ -274,7 +319,7 @@ export default function Step3({
     }, 1500); // Esperar 1.5 segundos para que useDelivery complete la carga
 
     return () => clearTimeout(checkAddress);
-  }, [address, deliveryMethod, router]);
+  }, [address, deliveryMethod, router, isKiosk]);
 
 
   // Handle Trade-In removal (ahora soporta eliminar por SKU)
@@ -463,73 +508,11 @@ export default function Step3({
   });
 
   // Estado para rastrear si canPickUp está cargando
-  const [isLoadingCanPickUp, setIsLoadingCanPickUp] = React.useState(() => {
-    // Si ya obtuvimos un valor del caché en la inicialización de globalCanPickUpFromSummary,
-    // entonces NO estamos cargando
-    // PERO: Como globalCanPickUpFromSummary se inicializa en el mismo render cycle, no podemos leerlo aquí directamente
-    // Tenemos que repetir la lógica o confiar en que si hay caché, no cargamos
-
-    // Repetir la lógica es más seguro para garantizar sincronía
-    if (typeof window === 'undefined') return true;
-
-    try {
-      const storedUser = localStorage.getItem("imagiq_user");
-      let userId: string | undefined;
-      if (storedUser) {
-        const user = JSON.parse(storedUser);
-        userId = user.id || user.user_id;
-      }
-
-      if (!userId) return true;
-
-      if (!products || products.length === 0) return true; // Si no hay productos, asumimos loading hasta que lleguen
-
-      // Verificar caché de nuevo (es rápido porque es memoria/localStorage)
-      let addressId: string | null = null;
-      let savedAddress = localStorage.getItem("checkout-address");
-
-      // Fallback a imagiq_default_address si checkout-address no existe (para usuarios invitados)
-      if (!savedAddress || savedAddress === "null" || savedAddress === "undefined") {
-        savedAddress = localStorage.getItem("imagiq_default_address");
-      }
-
-      if (savedAddress && savedAddress !== "null" && savedAddress !== "undefined") {
-        const parsed = JSON.parse(savedAddress);
-        if (parsed?.id) {
-          addressId = parsed.id;
-        }
-      }
-
-      // IMPORTANTE: Si no hay dirección válida, NO mostrar loading
-      // Esto permite que usuarios recién registrados sin direcciones puedan continuar
-      if (!addressId) {
-        return false; // Sin dirección = no loading, canPickUp será false
-      }
-
-      const productsToCheck = products.map((p) => ({
-        sku: p.sku,
-        quantity: p.quantity,
-      }));
-
-      const cacheKey = buildGlobalCanPickUpKey({
-        userId,
-        products: productsToCheck,
-        addressId,
-      });
-
-      const cachedValue = getGlobalCanPickUpFromCache(cacheKey);
-
-      // Si tenemos valor en caché, NO estamos cargando
-      if (cachedValue !== null) return false;
-
-      return true;
-    } catch (e) {
-      return true;
-    }
-  });
+  // Candidate-stores está desactivado, así que nunca estamos cargando
+  const [isLoadingCanPickUp, setIsLoadingCanPickUp] = React.useState(false);
 
   // Ref para rastrear si ya se cargó el pickup por primera vez
-  const hasLoadedPickupOnceRef = React.useRef(false);
+  const hasLoadedPickupOnceRef = React.useRef(isKiosk ? true : false);
 
   // Ref para rastrear el último valor de canPickUp para el que ya se forzó la recarga
   const lastCanPickUpForcedRef = React.useRef<boolean | undefined | null>(null);
@@ -590,6 +573,8 @@ export default function Step3({
   // SOLO si NO hay trade-in activo
   // IMPORTANTE: NO forzar cambio si effectiveCanPickUp global es true
   React.useEffect(() => {
+    // Kiosk: siempre domicilio, no aplica esta lógica
+    if (isKiosk) return;
     // Si effectiveCanPickUp global es true, SIEMPRE permitir seleccionar tienda
     // El canPickUp global tiene prioridad sobre el canPickUp individual de cada producto
     if (effectiveCanPickUp === true) {
@@ -600,7 +585,7 @@ export default function Step3({
       // setDeliveryMethod ya guarda automáticamente en localStorage
       setDeliveryMethod("domicilio");
     }
-  }, [hasActiveTradeIn, hasProductWithoutPickup, deliveryMethod, setDeliveryMethod, effectiveCanPickUp]);
+  }, [hasActiveTradeIn, hasProductWithoutPickup, deliveryMethod, setDeliveryMethod, effectiveCanPickUp, isKiosk]);
 
   // Ref para rastrear si ya se hizo la auto-selección (evita loops)
   const hasAutoSelectedMethodRef = React.useRef(false);
@@ -610,6 +595,8 @@ export default function Step3({
   // - Si solo "tienda" disponible (canPickUp=true pero domicilio deshabilitado por trade-in) → seleccionar tienda
   // - Si ambas disponibles → NO auto-seleccionar, dejar que el usuario elija
   React.useEffect(() => {
+    // Kiosk: siempre domicilio, no necesita auto-selección
+    if (isKiosk) return;
     // Solo auto-seleccionar UNA vez
     if (hasAutoSelectedMethodRef.current) {
       return;
@@ -636,7 +623,7 @@ export default function Step3({
     }
 
     // Si ambas están disponibles, NO auto-seleccionar (dejar que el usuario elija)
-  }, [effectiveCanPickUp, hasActiveTradeIn, deliveryMethod, setDeliveryMethod]);
+  }, [effectiveCanPickUp, hasActiveTradeIn, deliveryMethod, setDeliveryMethod, isKiosk]);
 
   // Ref para rastrear si ya cargamos tiendas para el trade-in actual (evita loops)
   const tradeInStoresLoadedRef = React.useRef(false);
@@ -651,6 +638,9 @@ export default function Step3({
   // Forzar método de entrega a "tienda" si hay trade-in activo
   // IMPORTANTE: NO ejecutar si acabamos de eliminar el trade-in (evitar revertir el cambio)
   React.useEffect(() => {
+    // Kiosk: siempre domicilio, no necesita lógica de trade-in/tienda
+    if (isKiosk) return;
+
     // BLOQUEAR durante carga inicial - solo el primer useEffect debe llamar al endpoint
     if (!hasCompletedInitialLoadRef.current) {
       return;
@@ -821,6 +811,8 @@ export default function Step3({
   // Si canPickUp es true, las tiendas vienen del mismo endpoint, así que deben mostrarse automáticamente
   // Esto se ejecuta cuando canPickUp tiene un valor (no es null) y es true
   React.useEffect(() => {
+    // Kiosk: no necesita cargar tiendas
+    if (isKiosk) return;
     // BLOQUEAR durante carga inicial - solo el primer useEffect debe llamar al endpoint
     if (!hasCompletedInitialLoadRef.current) {
       return;
@@ -860,6 +852,8 @@ export default function Step3({
   // IMPORTANTE: Precargar tiendas en segundo plano cuando hay Trade In activo
   // Esto asegura que las tiendas estén listas cuando el usuario seleccione "Recoger en tienda"
   React.useEffect(() => {
+    // Kiosk: no necesita precargar tiendas
+    if (isKiosk) return;
     // BLOQUEAR durante carga inicial - solo el primer useEffect debe llamar al endpoint
     if (!hasCompletedInitialLoadRef.current) {
       return;
@@ -981,6 +975,8 @@ export default function Step3({
   // También forzar recarga cuando el usuario selecciona "Recoger en tienda" y (canPickUp es true O hay Trade In activo)
   // IMPORTANTE: Solo cargar cuando se CAMBIA A tienda, NO cuando se cambia DE tienda a domicilio
   React.useEffect(() => {
+    // Kiosk: siempre domicilio, no necesita cargar tiendas
+    if (isKiosk) return;
     // BLOQUEAR durante carga inicial - solo el primer useEffect debe llamar al endpoint
     if (!hasCompletedInitialLoadRef.current) {
       return;
@@ -1015,6 +1011,9 @@ export default function Step3({
   // Esto solo se aplica si NO hay trade-in activo (con trade-in siempre debe ser tienda)
   // PERO NO debe ejecutarse si el usuario está cambiando manualmente el método
   React.useEffect(() => {
+    // Kiosk: no necesita lógica de cambio automático de método
+    if (isKiosk) return;
+
     // CRÍTICO: NO cambiar mientras esté cargando - esperar a que termine de cargar
     if (storesLoading || isLoadingCanPickUp) {
       // console.log('⏸️ Esperando a que termine de cargar antes de decidir método de entrega');
@@ -1125,8 +1124,10 @@ export default function Step3({
   const handleContinue = () => {
     // IMPORTANTE: Validar que haya dirección antes de continuar
     if (deliveryMethod === "domicilio" && !address) {
-      toast.error("Por favor selecciona una dirección para continuar");
-      router.push("/carrito/step2");
+      toast.error("Por favor agrega una dirección para continuar");
+      if (!isKiosk) {
+        router.push("/carrito/step2");
+      }
       return;
     }
 
@@ -1187,7 +1188,13 @@ export default function Step3({
     }
   };
   const handleAddressChange = async (newAddress: Address) => {
-    // console.log('📍 [Step3] handleAddressChange invocada:', newAddress);
+    console.log('📍 [Step3] handleAddressChange invocada:', {
+      id: newAddress.id,
+      direccion: newAddress.direccionFormateada || newAddress.lineaUno || (newAddress as any).linea_uno,
+      ciudad: newAddress.ciudad,
+      esPredeterminada: newAddress.esPredeterminada,
+      allKeys: Object.keys(newAddress),
+    });
 
     // IMPORTANTE: Si cambió la dirección, marcar que estamos recalculando INMEDIATAMENTE
     // Esto asegura que el skeleton se muestre antes de que se oculte el contenido anterior
@@ -1200,6 +1207,7 @@ export default function Step3({
     }
 
     // Actualizar estado local inmediatamente para mejor UX
+    console.log('📍 [Step3] Llamando setAddress con:', newAddress.id);
     setAddress(newAddress);
 
     // OPTIMISTIC UI: Actualizar la lista de direcciones para mover el "chulito" (checkmark)
@@ -1233,6 +1241,7 @@ export default function Step3({
       try {
         // Usar utility centralizada para sincronizar dirección
         // IMPORTANTE: fromHeader: true para forzar recálculo de tiendas y mostrar skeleton
+        console.log('🔄 [Step3] Sincronizando dirección con backend:', newAddress.id);
         await syncAddress({
           address: newAddress,
           userEmail: user?.email,
@@ -1240,7 +1249,7 @@ export default function Step3({
           loginFn: login,
           fromHeader: true,
         });
-        // console.log('✅ [Step3] Dirección sincronizada correctamente');
+        console.log('✅ [Step3] Dirección sincronizada correctamente');
       } catch (error) {
         console.error('⚠️ Error al sincronizar dirección predeterminada en Step3:', error);
         // No bloquear el flujo si falla la sincronización
@@ -1334,31 +1343,38 @@ export default function Step3({
   // 1. Está cargando stores (siempre mostrar skeleton mientras carga, incluso si hay datos previos)
   // 2. O si está cargando canPickUp (esperando datos del caché o endpoint)
   // 3. O si no hay datos Y no se ha cargado pickup al menos una vez (carga inicial) Y NO terminamos con canPickUp=false
-  const shouldShowSkeleton = storesLoading || isLoadingCanPickUp || (!hasStoreData && !hasLoadedPickupOnceRef.current && !finishedCalculationWithNoPickup);
+  const shouldShowSkeleton = isKiosk ? false : (storesLoading || isLoadingCanPickUp || (!hasStoreData && !hasLoadedPickupOnceRef.current && !finishedCalculationWithNoPickup));
 
   // DEBUG: Descomentar para troubleshooting de skeleton
-  console.log('🔍 [Step3 SKELETON DEBUG]', {
-    shouldShowSkeleton,
-    storesLoading,
-    isLoadingCanPickUp,
-    hasStoreData,
-    hasLoadedPickupOnce: hasLoadedPickupOnceRef.current,
-    finishedCalculationWithNoPickup,
-    canPickUp,
-    storesLength: stores.length,
-    availableStoresWhenCanPickUpFalseLength: availableStoresWhenCanPickUpFalse.length,
-  });
+  // console.log('🔍 [Step3 SKELETON DEBUG]', {
+  //   shouldShowSkeleton, storesLoading, isLoadingCanPickUp, hasStoreData,
+  //   hasLoadedPickupOnce: hasLoadedPickupOnceRef.current, finishedCalculationWithNoPickup,
+  //   canPickUp, storesLength: stores.length,
+  //   availableStoresWhenCanPickUpFalseLength: availableStoresWhenCanPickUpFalse.length,
+  // });
 
   // NOTE: REMOVED isRecalculatingPickup conditions to keep UI visible.
   // The loading state is now handled by individual components via isLoading prop.
 
+  // DEBUG Kiosk: ver estado de dirección en cada render
+  if (isKiosk) {
+    console.log('🏪 [Step3 RENDER] Kiosk address state:', {
+      hasAddress: !!address,
+      addressId: address?.id,
+      addressDisplay: address?.direccionFormateada || address?.lineaUno || (address as any)?.linea_uno || 'NULL',
+      deliveryMethod,
+      addressEdit,
+    });
+  }
+
   // Callback estable para recibir el estado de canPickUp desde Step4OrderSummary
   const handleCanPickUpReady = React.useCallback((canPickUpValue: boolean, isLoading: boolean) => {
+    if (isKiosk) return; // Kiosk: no necesita candidate-stores
     setIsLoadingCanPickUp(isLoading);
     if (typeof canPickUpValue === 'boolean') {
       setGlobalCanPickUpFromSummary(canPickUpValue);
     }
-  }, []);
+  }, [isKiosk]);
 
   return (
     <div className="min-h-screen w-full pb-40 md:pb-0">
@@ -1420,29 +1436,40 @@ export default function Step3({
                           ? "Para aplicar el beneficio Estreno y Entrego solo puedes recoger en tienda"
                           : undefined
                     }
-                    disableStorePickup={!effectiveCanPickUp && !hasActiveTradeIn}
-                    disableStorePickupReason={!effectiveCanPickUp && !hasActiveTradeIn ? "Este producto no está disponible para recoger en tienda" : undefined}
+                    disableStorePickup={isKiosk || (!effectiveCanPickUp && !hasActiveTradeIn)}
+                    disableStorePickupReason={
+                      isKiosk
+                        ? "No disponible en quiosco"
+                        : !effectiveCanPickUp && !hasActiveTradeIn
+                          ? "Este producto no está disponible para recoger en tienda"
+                          : undefined
+                    }
                     address={address}
                     onEditToggle={setAddressEdit}
                     addressLoading={addressLoading}
                     addressEdit={addressEdit}
+                    kioskMode={isKiosk}
                   />
 
-                  {deliveryMethod === "domicilio" && !hasActiveTradeIn && (
+                  {((deliveryMethod === "domicilio" && !hasActiveTradeIn) || isKiosk) && (
                     <div className="mt-6">
                       <AddressSelector
                         address={address}
-                        addresses={addresses}
+                        addresses={isKiosk ? [] : addresses}
                         addressEdit={addressEdit}
                         onAddressChange={handleAddressChange}
                         onEditToggle={setAddressEdit}
                         onAddressAdded={addAddress}
                         onAddressDeleted={() => addAddress()}
                         addressLoading={addressLoading}
+                        kioskMode={isKiosk}
                       />
                     </div>
                   )}
 
+                  {/* Kiosk: ocultar pickup en tienda */}
+                  {!isKiosk && (
+                  <>
                   {/* Mostrar opción de recoger en tienda siempre, pero deshabilitada si canPickUp es false y no hay trade-in */}
                   {/* IMPORTANTE: Habilitar recoger en tienda si canPickUp global es true O si hay trade-in activo */}
                   {/* Mostrar estado de carga cuando se está verificando disponibilidad (cambio de dirección o carga inicial) */}
@@ -1498,6 +1525,8 @@ export default function Step3({
                       </div>
                     );
                   })()}
+                  </>
+                  )}
                 </>
               )}
             </div>
@@ -1549,6 +1578,7 @@ export default function Step3({
                 disabled={!canContinue || !tradeInValidation.isValid}
                 isProcessing={isWaitingForCanPickUp}
                 isSticky={true}
+                shouldCalculateCanPickUp={false}
                 deliveryMethod={(() => {
                   if (deliveryMethod === "tienda") return "pickup";
                   if (deliveryMethod === "domicilio") return "delivery";
@@ -1580,7 +1610,40 @@ export default function Step3({
                   />
                 );
               })}
+
             </div>
+
+            {/* Kiosk: Información del cliente */}
+            {isKiosk && kioskClient && (
+              <div className="bg-white rounded-2xl p-5 shadow border border-[#E5E5E5]">
+                <h3 className="font-bold text-sm mb-3 flex items-center gap-2">
+                  <User className="h-4 w-4 text-gray-600" />
+                  Información del cliente
+                </h3>
+                <div className="space-y-2 text-sm text-gray-700">
+                  <div className="flex items-center gap-2">
+                    <User className="h-3.5 w-3.5 text-gray-400 shrink-0" />
+                    <span>{kioskClient.nombre} {kioskClient.apellido}</span>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <Mail className="h-3.5 w-3.5 text-gray-400 shrink-0" />
+                    <span className="truncate">{kioskClient.email}</span>
+                  </div>
+                  {kioskClient.celular && (
+                    <div className="flex items-center gap-2">
+                      <Phone className="h-3.5 w-3.5 text-gray-400 shrink-0" />
+                      <span>{kioskClient.celular}</span>
+                    </div>
+                  )}
+                  {kioskClient.cedula && (
+                    <div className="flex items-center gap-2">
+                      <FileText className="h-3.5 w-3.5 text-gray-400 shrink-0" />
+                      <span>{kioskClient.tipo_documento} {kioskClient.cedula}</span>
+                    </div>
+                  )}
+                </div>
+              </div>
+            )}
           </aside>
         </div>
       </div>
