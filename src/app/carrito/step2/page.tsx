@@ -45,7 +45,14 @@ export default function Step2Page() {
       // Si hay token Y usuario, verificar el rol
       if (token && userToCheck) {
         const userRole = (userToCheck as any).rol ?? (userToCheck as any).role;
-        
+
+        // Si es kiosk (rol 5), SIEMPRE permitir acceso a Step2
+        if (userRole === 5) {
+          console.log("🏪 [STEP2] Usuario kiosk (rol 5), permitiendo acceso");
+          setIsChecking(false);
+          return;
+        }
+
         // Si es usuario REGULAR (rol 2 o cualquier rol diferente a 3), redirigir a step3
         if (userRole !== 3) {
           console.log("⚠️ [STEP2] Usuario regular detectado (rol !== 3). Redirigiendo a step3...");
@@ -101,6 +108,19 @@ export default function Step2Page() {
 
   const handleBack = () => router.push("/carrito/step1");
   const handleNext = () => {
+    // Kiosk: no requiere dirección en Step2 (se selecciona en Step3)
+    const userStr = localStorage.getItem("imagiq_user");
+    if (userStr) {
+      try {
+        const u = JSON.parse(userStr);
+        if ((u?.role ?? u?.rol) === 5) {
+          console.log("🏪 [STEP2] Kiosk, navegando directo a step3");
+          router.push("/carrito/step3");
+          return;
+        }
+      } catch { /* ignore */ }
+    }
+
     // Verificar que haya dirección en checkout-address antes de navegar
     const savedAddress = localStorage.getItem("checkout-address");
     if (!savedAddress) {
@@ -117,7 +137,7 @@ export default function Step2Page() {
       }, 100);
       return;
     }
-    
+
     console.log("✅ [STEP2] Dirección verificada, navegando a step3");
     router.push("/carrito/step3");
   };

@@ -571,7 +571,7 @@ export default function Navbar() {
           </div>
 
           <div className="hidden lg:flex items-center flex-none">
-            <div className="flex items-center gap-2">
+            <div className="flex items-center gap-1">
               <SearchBar
                 value={navbar.searchQuery}
                 onChange={navbar.setSearchQuery}
@@ -594,24 +594,22 @@ export default function Navbar() {
               >
                 <Heart className={cn("w-5 h-5", getIconColorClasses())} />
               </Link>
-              <div className="flex items-center justify-end">
-                {/* Solo mostrar dropdown si está autenticado, tiene nombre Y NO es invitado (rol 3) */}
-                {navbar.isAuthenticated && navbar.user?.nombre && (navbar.user?.role ?? navbar.user?.rol) !== 3 ? (
-                  <UserOptionsDropdown showWhiteItems={shouldShowWhiteItems} />
-                ) : (
-                  <button
-                    type="button"
-                    className={cn(
-                      "flex items-center justify-center w-10 h-10 cursor-pointer active:scale-95 transition-transform duration-150 ease-out",
-                      getIconColorClasses()
-                    )}
-                    onClick={() => globalThis.location.replace("/login")}
-                    aria-label="Ingresar"
-                  >
-                    <User className={cn("w-5 h-5", getIconColorClasses())} />
-                  </button>
-                )}
-              </div>
+              {/* Solo mostrar dropdown si está autenticado, tiene nombre Y NO es invitado (rol 3) */}
+              {navbar.isAuthenticated && navbar.user?.nombre && (navbar.user?.role ?? navbar.user?.rol) !== 3 ? (
+                <UserOptionsDropdown showWhiteItems={shouldShowWhiteItems} />
+              ) : (
+                <button
+                  type="button"
+                  className={cn(
+                    "flex items-center justify-center w-10 h-10 cursor-pointer active:scale-95 transition-transform duration-150 ease-out",
+                    getIconColorClasses()
+                  )}
+                  onClick={() => globalThis.location.replace("/login")}
+                  aria-label="Ingresar"
+                >
+                  <User className={cn("w-5 h-5", getIconColorClasses())} />
+                </button>
+              )}
             </div>
           </div>
         </div>

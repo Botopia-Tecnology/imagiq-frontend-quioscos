@@ -16,6 +16,7 @@ interface AddressSelectorProps {
   onAddressAdded?: (address?: Address) => void | Promise<void>;
   onAddressDeleted?: () => void | Promise<void>; // Callback para recargar direcciones después de eliminar
   addressLoading?: boolean; // Para mostrar skeleton al recargar dirección desde header
+  kioskMode?: boolean; // Kiosk: siempre mostrar formulario de agregar, ocultar lista y botón volver
 }
 
 /**
@@ -47,8 +48,10 @@ export const AddressSelector: React.FC<AddressSelectorProps> = ({
   onAddressAdded,
   onAddressDeleted,
   addressLoading = false,
+  kioskMode = false,
 }) => {
-  const [showAddForm, setShowAddForm] = useState(false);
+  // Kiosk: siempre mostrar formulario directamente
+  const [showAddForm, setShowAddForm] = useState(kioskMode);
   const [deletingAddressId, setDeletingAddressId] = useState<string | null>(null);
   const [addressToDelete, setAddressToDelete] = useState<Address | null>(null);
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
@@ -108,6 +111,13 @@ export const AddressSelector: React.FC<AddressSelectorProps> = ({
     setAddressToDelete(null);
   };
 
+  // Kiosk: asegurar que el formulario siempre se muestre al abrir el modal
+  useEffect(() => {
+    if (kioskMode && addressEdit) {
+      setShowAddForm(true);
+    }
+  }, [kioskMode, addressEdit]);
+
   // Si no hay dirección seleccionada, seleccionar por defecto la marcada
   useEffect(() => {
     if (!address && addresses.length > 0) {
@@ -118,6 +128,14 @@ export const AddressSelector: React.FC<AddressSelectorProps> = ({
   }, [address, addresses, onAddressChange]);
 
   const handleAddressAdded = async (newAddress: Address) => {
+    console.log('🏠 [AddressSelector] Dirección agregada exitosamente:', {
+      id: newAddress.id,
+      direccion: newAddress.direccionFormateada || newAddress.lineaUno,
+      ciudad: newAddress.ciudad,
+      esPredeterminada: newAddress.esPredeterminada,
+      kioskMode,
+    });
+
     // Llamar a onAddressAdded y esperar si devuelve una promesa
     const result = onAddressAdded?.(newAddress);
     if (result instanceof Promise) {
@@ -318,27 +336,30 @@ export const AddressSelector: React.FC<AddressSelectorProps> = ({
           <>
             {/* Header con botón de volver */}
             <div className="flex items-center gap-3 pb-4 border-b border-gray-200">
-              <button
-                type="button"
-                onClick={() => setShowAddForm(false)}
-                className="p-2 hover:bg-gray-100 rounded-lg transition"
-              >
-                <svg
-                  className="h-5 w-5 text-gray-600"
-                  fill="none"
-                  stroke="currentColor"
-                  viewBox="0 0 24 24"
+              {/* Kiosk: ocultar botón volver (no hay lista de direcciones a la cual volver) */}
+              {!kioskMode && (
+                <button
+                  type="button"
+                  onClick={() => setShowAddForm(false)}
+                  className="p-2 hover:bg-gray-100 rounded-lg transition"
                 >
-                  <path
-                    strokeLinecap="round"
-                    strokeLinejoin="round"
-                    strokeWidth={2}
-                    d="M15 19l-7-7 7-7"
-                  />
-                </svg>
-              </button>
+                  <svg
+                    className="h-5 w-5 text-gray-600"
+                    fill="none"
+                    stroke="currentColor"
+                    viewBox="0 0 24 24"
+                  >
+                    <path
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                      strokeWidth={2}
+                      d="M15 19l-7-7 7-7"
+                    />
+                  </svg>
+                </button>
+              )}
               <h4 className="text-xl font-semibold text-gray-900">
-                Agregar nueva dirección
+                {kioskMode ? "Agregar dirección de envío" : "Agregar nueva dirección"}
               </h4>
             </div>
 
@@ -346,8 +367,9 @@ export const AddressSelector: React.FC<AddressSelectorProps> = ({
             <div className="max-h-[calc(100vh-150px)] overflow-y-auto pr-2">
               <AddNewAddressForm
                 onAddressAdded={handleAddressAdded}
-                onCancel={() => setShowAddForm(false)}
+                onCancel={kioskMode ? undefined : () => setShowAddForm(false)}
                 withContainer={false}
+                skipCoverageValidation={kioskMode}
               />
             </div>
           </>

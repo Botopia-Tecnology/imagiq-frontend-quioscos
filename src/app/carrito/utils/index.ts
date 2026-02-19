@@ -2,6 +2,8 @@
 import { AddiPaymentData, CardPaymentData, PsePaymentData, CheckZeroInterestRequest, CheckZeroInterestResponse } from "../types";
 import { apiPost, apiGet } from "@/lib/api-client";
 
+export type KioskEmailSentResponse = { kioskEmailSent: true; email: string };
+
 export async function payWithAddi(
   props: AddiPaymentData
 ): Promise<{ redirectUrl: string } | { error: string; message: string }> {
@@ -64,6 +66,42 @@ export async function payWithPse(props: PsePaymentData): Promise<{ redirectUrl: 
     console.error("Error processing PSE payment:", error);
     if (error instanceof Error) {
       return { error: "payment_failed", message: error.message || "Failed to process PSE payment" };
+    }
+    return { error: "network_error", message: "Error de conexión al procesar el pago" };
+  }
+}
+
+/**
+ * Kiosk mode: Creates PSE payment and sends bank redirect link to customer's email
+ */
+export async function kioskPayWithPse(
+  props: PsePaymentData & { kioskCustomerEmail: string }
+): Promise<KioskEmailSentResponse | { error: string; message: string }> {
+  try {
+    const data = await apiPost<KioskEmailSentResponse>('/api/payments/kiosk/pse', props);
+    return data;
+  } catch (error) {
+    console.error("Error processing kiosk PSE payment:", error);
+    if (error instanceof Error) {
+      return { error: "payment_failed", message: error.message || "Failed to process kiosk PSE payment" };
+    }
+    return { error: "network_error", message: "Error de conexión al procesar el pago" };
+  }
+}
+
+/**
+ * Kiosk mode: Creates Addi application and sends redirect link to customer's email
+ */
+export async function kioskPayWithAddi(
+  props: AddiPaymentData & { kioskCustomerEmail: string }
+): Promise<KioskEmailSentResponse | { error: string; message: string }> {
+  try {
+    const data = await apiPost<KioskEmailSentResponse>('/api/payments/kiosk/addi', props);
+    return data;
+  } catch (error) {
+    console.error("Error processing kiosk Addi payment:", error);
+    if (error instanceof Error) {
+      return { error: "payment_failed", message: error.message || "Failed to process kiosk Addi payment" };
     }
     return { error: "network_error", message: "Error de conexión al procesar el pago" };
   }

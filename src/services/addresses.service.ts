@@ -60,31 +60,62 @@ export class AddressesService {
   }
 
   /**
+   * Obtiene el userId correcto para operaciones de dirección en modo kiosk
+   * Prioridad: kiosk_client_id > imagiq_user.id > imagiq_user.email > guest ID
+   */
+  private getKioskUserId(): { userId: string; source: string } | null {
+    // 1. Verificar kiosk_client_id (objeto JSON con datos del cliente)
+    const kioskClientIdRaw = typeof window !== 'undefined' ? localStorage.getItem("kiosk_client_id") : null;
+    let kioskClientId: string | null = null;
+    if (kioskClientIdRaw) {
+      try {
+        const parsed = JSON.parse(kioskClientIdRaw);
+        kioskClientId = parsed?.userId ?? null;
+      } catch {
+        kioskClientId = null;
+      }
+    }
+    // 2. Verificar imagiq_user
+    const userInfo = safeGetLocalStorage<{ id?: string; email?: string }>("imagiq_user", {});
+
+    // Log del estado para debugging
+    console.log("🔍 [addressesService] Estado de localStorage:", {
+      kiosk_client_id: kioskClientId,
+      imagiq_user_id: userInfo.id,
+    });
+
+    if (kioskClientId) {
+      return { userId: kioskClientId, source: "kiosk_client_id" };
+    }
+
+    if (userInfo.id) {
+      return { userId: userInfo.id, source: "imagiq_user.id" };
+    }
+
+    if (userInfo.email) {
+      return { userId: userInfo.email, source: "imagiq_user.email" };
+    }
+
+    return null;
+  }
+
+  /**
    * Crea una nueva dirección
    */
   public async createAddress(
     addressData: CreateAddressRequest
   ): Promise<Address> {
     try {
-      // Obtener información del usuario del localStorage
-      const userInfo = safeGetLocalStorage<{ id?: string; email?: string }>(
-        "imagiq_user",
-        {}
-      );
       const requestData = { ...addressData };
 
       // SIEMPRE incluir usuarioId explícitamente
-      // Usa la misma lógica que NearbyLocationButton para consistencia
-      // Prioridad: 1) userInfo.id, 2) userInfo.email, 3) guest ID temporal
-      if (userInfo.id) {
-        requestData.usuarioId = userInfo.id;
-        console.log("✅ addressesService: Usando userInfo.id:", requestData.usuarioId);
-      } else if (userInfo.email) {
-        requestData.usuarioId = userInfo.email;
-        console.log("✅ addressesService: Usando userInfo.email:", requestData.usuarioId);
+      // Usar getKioskUserId para obtener el userId correcto
+      const kioskUser = this.getKioskUserId();
+      if (kioskUser) {
+        requestData.usuarioId = kioskUser.userId;
+        console.log(`🏪 addressesService.createAddress: Usando ${kioskUser.source}: ${kioskUser.userId}`);
       } else {
-        // Si no hay usuario en imagiq_user, usar guest ID temporal
-        // Este ID se usará hasta que el usuario complete Step 2
+        // Si no hay usuario identificado, usar guest ID temporal
         if (typeof window !== 'undefined') {
           let guestId = localStorage.getItem("imagiq_guest_id");
           if (!guestId) {
@@ -119,8 +150,15 @@ export class AddressesService {
         JSON.stringify(requestData, null, 2)
       );
 
-      const result = await apiPost<Address>("/api/addresses", requestData);
-      console.log("✅ Dirección creada exitosamente:", result);
+      let result: Address;
+      try {
+        result = await apiPost<Address>("/api/addresses", requestData);
+        console.log("✅ Dirección creada exitosamente:", result);
+      } catch (apiError) {
+        console.error("❌ ERROR al llamar POST /api/addresses:", apiError);
+        console.error("❌ Request data que falló:", JSON.stringify(requestData, null, 2));
+        throw apiError;
+      }
 
       // Si es la primera dirección O si se marcó como predeterminada,
       // llamar a setDefaultAddress para desactivar las demás
@@ -164,20 +202,12 @@ export class AddressesService {
    */
   public async getUserAddresses(): Promise<Address[]> {
     try {
-      // El backend requiere usuarioId siempre (con o sin token JWT)
-      const userInfo = safeGetLocalStorage<{ id?: string; email?: string }>(
-        "imagiq_user",
-        {}
-      );
-
+      const kioskUser = this.getKioskUserId();
       let endpoint = "/api/addresses";
 
-      if (userInfo.id) {
-        endpoint += `?usuarioId=${encodeURIComponent(userInfo.id)}`;
-      } else if (userInfo.email) {
-        endpoint += `?usuarioId=${encodeURIComponent(userInfo.email)}`;
+      if (kioskUser) {
+        endpoint += `?usuarioId=${encodeURIComponent(kioskUser.userId)}`;
       } else {
-        // Si no hay userInfo, retornar array vacío
         console.warn("No hay información de usuario para obtener direcciones");
         return [];
       }
@@ -220,22 +250,15 @@ export class AddressesService {
     tipo: "ENVIO" | "FACTURACION" | "AMBOS"
   ): Promise<Address | null> {
     try {
-      // Obtener información del usuario del localStorage
-      const userInfo = safeGetLocalStorage<{ id?: string; email?: string }>(
-        "imagiq_user",
-        {}
-      );
-
-      if (!userInfo.id && !userInfo.email) {
+      const kioskUser = this.getKioskUserId();
+      if (!kioskUser) {
         console.warn(
           "No hay información de usuario para obtener dirección predeterminada"
         );
         return null;
       }
-
-      const usuarioId = userInfo.id || userInfo.email || "";
       const endpoint = `/api/addresses/default/${tipo}?usuarioId=${encodeURIComponent(
-        usuarioId
+        kioskUser.userId
       )}`;
 
       return await apiGet<Address>(endpoint);
@@ -285,19 +308,13 @@ export class AddressesService {
    */
   public async deleteAddress(addressId: string): Promise<{ message: string }> {
     try {
-      // Obtener información del usuario del localStorage
-      const userInfo = safeGetLocalStorage<{ id?: string; email?: string }>(
-        "imagiq_user",
-        {}
-      );
-
-      if (!userInfo.id && !userInfo.email) {
+      const kioskUser = this.getKioskUserId();
+      if (!kioskUser) {
         throw new Error(
           "No se encontró información del usuario. Por favor, inicia sesión nuevamente."
         );
       }
-
-      const usuarioId = userInfo.id || userInfo.email || "";
+      const usuarioId = kioskUser.userId;
 
       // Obtener todas las direcciones antes de eliminar para verificar si la eliminada era predeterminada
       const allAddresses = await this.getUserAddresses();
@@ -408,20 +425,13 @@ export class AddressesService {
     addressData: CreateAddressRequest
   ): Promise<Address> {
     try {
-      // Obtener información del usuario del localStorage
-      const userInfo = safeGetLocalStorage<{ id?: string; email?: string }>(
-        "imagiq_user",
-        {}
-      );
       const requestData = { ...addressData };
 
-      // SIEMPRE incluir usuarioId explícitamente
-      if (userInfo.id) {
-        requestData.usuarioId = userInfo.id;
-        console.log("✅ createAddressWithoutDefault: Usando userInfo.id:", requestData.usuarioId);
-      } else if (userInfo.email) {
-        requestData.usuarioId = userInfo.email;
-        console.log("✅ createAddressWithoutDefault: Usando userInfo.email:", requestData.usuarioId);
+      // Usar getKioskUserId para obtener el userId correcto (incluye kiosk_client_id)
+      const kioskUser = this.getKioskUserId();
+      if (kioskUser) {
+        requestData.usuarioId = kioskUser.userId;
+        console.log(`✅ createAddressWithoutDefault: Usando ${kioskUser.source}: ${kioskUser.userId}`);
       } else {
         throw new Error(
           "No se encontró información del usuario. Por favor, inicia sesión nuevamente."
@@ -460,24 +470,22 @@ export class AddressesService {
    */
   public async setDefaultAddress(addressId: string): Promise<Address> {
     try {
-      // Obtener información del usuario del localStorage
-      const userInfo = safeGetLocalStorage<{ id?: string; email?: string }>(
-        "imagiq_user",
-        {}
-      );
+      const kioskUser = this.getKioskUserId();
+      console.log("🔑 setDefaultAddress:", { addressId, ...kioskUser });
 
-      if (!userInfo.id && !userInfo.email) {
+      if (!kioskUser) {
         throw new Error(
           "No se encontró información del usuario. Por favor, inicia sesión nuevamente."
         );
       }
-
-      const usuarioId = userInfo.id || userInfo.email || "";
+      const usuarioId = kioskUser.userId;
       const endpoint = `/api/addresses/${addressId}/set-default?usuarioId=${encodeURIComponent(
         usuarioId
       )}`;
 
-      return await apiPost<Address>(endpoint, {});
+      const result = await apiPost<Address>(endpoint, {});
+      console.log("✅ setDefaultAddress exitoso:", { addressId, usuarioId });
+      return result;
     } catch (error: unknown) {
       const errorMessage =
         error instanceof Error

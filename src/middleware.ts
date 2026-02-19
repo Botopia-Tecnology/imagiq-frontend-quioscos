@@ -131,20 +131,19 @@ export async function middleware(request: NextRequest) {
   }
 
   // --- Protección de rutas: requiere autenticación ---
-  // TODO: Reactivar cuando el flujo OTP esté listo en producción
-  // const PUBLIC_PATHS = new Set(["login", "register", "auth"]);
-  // const firstSeg = pathname.split("/").filter(Boolean)[0] || "";
-  //
-  // if (!PUBLIC_PATHS.has(firstSeg)) {
-  //   const token = request.cookies.get("imagiq_token");
-  //   if (!token) {
-  //     const loginUrl = new URL("/login", request.url);
-  //     if (pathname !== "/") {
-  //       loginUrl.searchParams.set("redirect", pathname);
-  //     }
-  //     return NextResponse.redirect(loginUrl);
-  //   }
-  // }
+  const PUBLIC_PATHS = new Set(["login", "register", "auth"]);
+  const firstSeg = pathname.split("/").filter(Boolean)[0] || "";
+
+  if (!PUBLIC_PATHS.has(firstSeg)) {
+    const token = request.cookies.get("imagiq_token");
+    if (!token) {
+      const loginUrl = new URL("/login", request.url);
+      if (pathname !== "/") {
+        loginUrl.searchParams.set("redirect", pathname);
+      }
+      return NextResponse.redirect(loginUrl);
+    }
+  }
 
   // Extraer primer segmento
   const segments = pathname.split("/").filter(Boolean);

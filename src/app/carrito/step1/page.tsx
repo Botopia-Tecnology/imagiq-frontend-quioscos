@@ -33,8 +33,20 @@ export default function Step1Page() {
     // Obtener el rol del usuario (compatibilidad con backend que usa 'rol' y frontend que usa 'role')
     const userRole = (loggedUser as any)?.role ?? (loggedUser as any)?.rol;
     
-    // Si es usuario regular (tiene token y NO es invitado rol 3), ir directamente a step3
+    // Si es kiosk (rol 5), limpiar datos de cliente anterior y enviar a step2
     const token = localStorage.getItem("imagiq_token");
+    if (token && loggedUser?.email && userRole === 5) {
+      localStorage.removeItem('kiosk_client_id');
+      localStorage.removeItem('kiosk_client'); // legacy key cleanup
+      localStorage.removeItem('checkout-address');
+      localStorage.removeItem('imagiq_default_address');
+      localStorage.removeItem('imagiq_candidate_stores_cache');
+      console.log("🏪 [STEP1] Usuario kiosk (rol 5), limpiando datos de cliente anterior y yendo a step2");
+      router.push("/carrito/step2");
+      return;
+    }
+
+    // Si es usuario regular (tiene token y NO es invitado rol 3), ir directamente a step3
     if (token && loggedUser?.email && userRole !== 3) {
       console.log("✅ [STEP1] Usuario regular autenticado (rol !== 3), yendo directo a step3");
       router.push("/carrito/step3");

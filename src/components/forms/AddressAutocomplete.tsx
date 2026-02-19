@@ -66,8 +66,8 @@ export function AddressAutocomplete({
     ...options
   }), [options]);
 
-  // Determinar si validar cobertura basado en addressType (compatibilidad) o validateCoverage
-  const shouldValidateCoverage = validateCoverage || (addressType === 'shipping');
+  // Cobertura desactivada - se permite cualquier dirección
+  const shouldValidateCoverage = false;
 
   // Hook de autocompletado
   const {

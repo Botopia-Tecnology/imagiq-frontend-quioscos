@@ -18,6 +18,15 @@ export function getUserId(): string | null {
   // console.log('🔍 [getUserId] Buscando userId en localStorage...');
 
   try {
+    // 0. PRIORIDAD MÁXIMA: kiosk_client_id (pedido de kiosk para un cliente)
+    const kioskClientStr = localStorage.getItem('kiosk_client_id');
+    if (kioskClientStr && kioskClientStr !== 'null' && kioskClientStr !== 'undefined') {
+      const kioskClient = JSON.parse(kioskClientStr);
+      if (kioskClient?.userId) {
+        return kioskClient.userId;
+      }
+    }
+
     // 1. Intentar obtener de imagiq_user (prioridad más alta)
     const userStr = localStorage.getItem('imagiq_user');
     // console.log('  📦 imagiq_user raw:', userStr ? userStr.substring(0, 100) + '...' : 'null');
@@ -197,6 +206,7 @@ export function clearAllUserData(): void {
     // Limpiar usuario
     localStorage.removeItem('imagiq_user');
     localStorage.removeItem('imagiq_token');
+    localStorage.removeItem('kiosk_client_id');
     // console.log('🗑️ [clearAllUserData] Usuario y token limpiados');
 
     // Limpiar TODAS las direcciones (CRÍTICO para logout)

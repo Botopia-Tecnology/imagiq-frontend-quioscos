@@ -1,20 +1,14 @@
 "use client";
 
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect, useRef, useCallback } from "react";
 import { useRouter } from "next/navigation";
 import { useAuthContext } from "@/features/auth/context";
 import { Button } from "@/components/ui/button";
 import { Separator } from "@/components/ui/separator";
-import { notifyRegisterSuccess, notifyError } from "../notifications";
-import { Usuario } from "@/types/user";
-import { StepIndicator } from "./components/StepIndicator";
-import { PersonalInfoStep } from "./components/PersonalInfoStep";
-import { OTPStep } from "./components/OTPStep";
-import { AddressStep } from "./components/AddressStep";
-import { PaymentStep } from "./components/PaymentStep";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
 import { apiPost } from "@/lib/api-client";
 import { isAllowedEmailDomain, DOMAIN_ERROR_MESSAGE } from "@/utils/emailDomainValidation";
-import Image from "next/image";
 import {
   Card,
   CardContent,
@@ -22,692 +16,724 @@ import {
   CardTitle,
   CardDescription,
 } from "@/components/ui/card";
+import { MapPin, Store, Clock, Phone, Eye, EyeOff, CheckCircle2, Loader2, Mail, Check, X, ArrowLeft } from "lucide-react";
 
-const STEPS = [
-  { id: 1, name: "Información personal", required: true },
-  { id: 2, name: "Verificación", required: true },
-  { id: 3, name: "Dirección de envío", required: false },
-  { id: 4, name: "Método de pago", required: false },
-];
+interface TiendaData {
+  codigo: string;
+  descripcion: string;
+  departamento: string;
+  ciudad: string;
+  direccion: string;
+  place_id: string;
+  horario: string;
+  telefono: string;
+  extension: string;
+  email: string;
+  cod_bodega: string;
+  cod_dane: string;
+  latitud: string;
+  longitud: string;
+}
+
+interface VerifyOtpResponse {
+  verified: boolean;
+  tienda: TiendaData;
+}
+
+const GOOGLE_MAPS_API_KEY = process.env.NEXT_PUBLIC_GOOGLE_PLACES_API_KEY || "";
+
+// Componente de mapa con Google Maps JavaScript API
+function GoogleMap({ lat, lng, title }: { lat: number; lng: number; title: string }) {
+  const mapRef = useRef<HTMLDivElement>(null);
+  const mapInstanceRef = useRef<google.maps.Map | null>(null);
+
+  const initMap = useCallback(() => {
+    if (!mapRef.current || !window.google?.maps) return;
+    if (mapInstanceRef.current) return;
+
+    const position = { lat, lng };
+    const map = new window.google.maps.Map(mapRef.current, {
+      center: position,
+      zoom: 16,
+      disableDefaultUI: true,
+      zoomControl: true,
+      mapTypeControl: false,
+      streetViewControl: false,
+      fullscreenControl: false,
+    });
+
+    new window.google.maps.Marker({
+      position,
+      map,
+      title,
+    });
+
+    mapInstanceRef.current = map;
+  }, [lat, lng, title]);
+
+  useEffect(() => {
+    // Si ya está cargado Google Maps
+    if (window.google?.maps) {
+      initMap();
+      return;
+    }
+
+    // Verificar si ya se está cargando el script
+    const existingScript = document.querySelector('script[src*="maps.googleapis.com"]');
+    if (existingScript) {
+      existingScript.addEventListener("load", initMap);
+      return;
+    }
+
+    // Cargar el script
+    const script = document.createElement("script");
+    script.src = `https://maps.googleapis.com/maps/api/js?key=${GOOGLE_MAPS_API_KEY}`;
+    script.async = true;
+    script.defer = true;
+    script.onload = initMap;
+    document.head.appendChild(script);
+  }, [initMap]);
+
+  return (
+    <div
+      ref={mapRef}
+      className="w-full rounded-xl overflow-hidden border border-gray-200"
+      style={{ height: 340 }}
+    />
+  );
+}
+
+// Validaciones de contraseña
+function getPasswordChecks(password: string) {
+  return [
+    { label: "Mínimo 8 caracteres", valid: password.length >= 8 },
+    { label: "Una letra mayúscula", valid: /[A-Z]/.test(password) },
+    { label: "Una letra minúscula", valid: /[a-z]/.test(password) },
+    { label: "Un número", valid: /\d/.test(password) },
+  ];
+}
 
 export default function CreateAccountPage() {
   const router = useRouter();
   const { login } = useAuthContext();
 
-  const [currentStep, setCurrentStep] = useState(1);
+  // Step: 'email' | 'otp' | 'confirm' | 'success'
+  const [step, setStep] = useState<"email" | "otp" | "confirm" | "success">("email");
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState("");
-  const [fromLogin, setFromLogin] = useState(false);
 
-  const [formData, setFormData] = useState({
-    nombre: "",
-    apellido: "",
-    email: "",
-    telefono: "",
-    codigo_pais: "57", // Colombia por defecto (sin el +)
-    tipo_documento: "CC",
-    numero_documento: "",
-    fecha_nacimiento: "",
-    contrasena: "",
-    confirmPassword: "",
-  });
+  const [email, setEmail] = useState("");
+  const [otpDigits, setOtpDigits] = useState<string[]>(["", "", "", ""]);
+  const [otpLength, setOtpLength] = useState(4);
+  const otpRefs = useRef<(HTMLInputElement | null)[]>([]);
+  const [tienda, setTienda] = useState<TiendaData | null>(null);
+  const [contrasena, setContrasena] = useState("");
+  const [confirmPassword, setConfirmPassword] = useState("");
+  const [showPassword, setShowPassword] = useState(false);
+  const [showConfirmPassword, setShowConfirmPassword] = useState(false);
+  const [resendCooldown, setResendCooldown] = useState(0);
 
-  const [otpCode, setOtpCode] = useState("");
-  const [otpSent, setOtpSent] = useState(false);
-  const [userId, setUserId] = useState<string | null>(null);
-  const [sendMethod, setSendMethod] = useState<'email' | 'whatsapp'>('whatsapp');
-  
-  // Estados para validación de duplicados
-  const [hasEmailError, setHasEmailError] = useState(false);
-  const [hasPhoneError, setHasPhoneError] = useState(false);
-  const [hasDocumentError, setHasDocumentError] = useState(false);
+  const passwordChecks = getPasswordChecks(contrasena);
+  const allPasswordChecksValid = passwordChecks.every((c) => c.valid);
 
-  // Estados para el paso 3 (Dirección)
-  const [isAddressFormValid, setIsAddressFormValid] = useState(false);
-  const addressSubmitRef = useRef<(() => void) | null>(null);
-
-  // useEffect para cargar datos si viene desde login O restaurar progreso
+  // Redirigir si ya está autenticado
   useEffect(() => {
-    // Verificar si ya hay un usuario logueado
     const token = localStorage.getItem("imagiq_token");
     const userInfo = localStorage.getItem("imagiq_user");
-
     if (token && userInfo) {
       try {
         const user = JSON.parse(userInfo);
         const userRole = user.role ?? user.rol;
-
-        // Si es usuario invitado (rol 3), debe empezar desde el paso 1
-        // para completar su registro como usuario normal
-        if (userRole === 3) {
-          console.log("🔄 Usuario invitado (rol 3) - iniciando registro desde paso 1");
-          // Limpiar datos de sesión del invitado para que pueda registrarse
-          localStorage.removeItem("imagiq_token");
-          localStorage.removeItem("imagiq_user");
-          localStorage.removeItem("create_account_progress");
-          // Pre-llenar datos del invitado si existen
-          setFormData({
-            nombre: user.nombre || "",
-            apellido: user.apellido || "",
-            email: user.email || "",
-            telefono: user.telefono || "",
-            codigo_pais: "57",
-            tipo_documento: user.tipo_documento || "CC",
-            numero_documento: user.numero_documento || "",
-            fecha_nacimiento: user.fecha_nacimiento || "",
-            contrasena: "",
-            confirmPassword: "",
-          });
-          setCurrentStep(1); // Empezar desde el paso 1
-          return;
+        if (userRole !== 3) {
+          router.push("/");
         }
-
-        // Usuario ya verificado (rol 2 u otro), ir directo al paso 3
-        setFormData({
-          nombre: user.nombre || "",
-          apellido: user.apellido || "",
-          email: user.email || "",
-          telefono: user.telefono || "",
-          codigo_pais: "57",
-          tipo_documento: user.tipo_documento || "CC",
-          numero_documento: user.numero_documento || "",
-          fecha_nacimiento: user.fecha_nacimiento || "",
-          contrasena: "",
-          confirmPassword: "",
-        });
-        setUserId(user.id || null);
-        setCurrentStep(3); // Ir directo al paso 3
-        return;
-      } catch (err) {
-        console.error("Error al cargar usuario logueado:", err);
+      } catch {
+        // ignorar
       }
     }
+  }, [router]);
 
-    // Si no hay usuario logueado, verificar si hay progreso guardado
-    const savedProgress = localStorage.getItem("create_account_progress");
-    if (savedProgress) {
-      try {
-        const progress = JSON.parse(savedProgress);
-        setCurrentStep(progress.currentStep || 1);
-        setFormData(progress.formData || formData);
-        setUserId(progress.userId || null);
-        setOtpSent(progress.otpSent || false);
-        setSendMethod(progress.sendMethod || 'whatsapp');
-        return;
-      } catch (err) {
-        console.error("Error al restaurar progreso:", err);
-      }
-    }
-
-    // Si no hay progreso guardado, verificar datos pendientes desde login
-    const pendingData = sessionStorage.getItem("pending_registration_step2");
-    if (pendingData) {
-      try {
-        const data = JSON.parse(pendingData);
-        setFormData({
-          nombre: data.nombre || "",
-          apellido: data.apellido || "",
-          email: data.email || "",
-          telefono: data.telefono || "",
-          codigo_pais: "57",
-          tipo_documento: "CC",
-          numero_documento: data.numero_documento || "",
-          fecha_nacimiento: "",
-          contrasena: "",
-          confirmPassword: "",
-        });
-        setUserId(data.userId || null);
-        setFromLogin(true);
-        setCurrentStep(2); // Ir directo al paso 2
-        // Limpiar sessionStorage
-        sessionStorage.removeItem("pending_registration_step2");
-      } catch (err) {
-        console.error("Error al cargar datos pendientes:", err);
-      }
-    }
-  }, []);
-
-  // useEffect para guardar progreso cuando cambie el estado
+  // Cooldown timer para reenviar OTP
   useEffect(() => {
-    // Solo guardar progreso si no estamos en el paso 1 inicial (sin datos)
-    if (currentStep > 1 || formData.email || formData.nombre) {
-      const progress = {
-        currentStep,
-        formData,
-        userId,
-        otpSent,
-        sendMethod,
-        timestamp: Date.now(),
-      };
-      localStorage.setItem("create_account_progress", JSON.stringify(progress));
-    }
-  }, [currentStep, formData, userId, otpSent, sendMethod]);
+    if (resendCooldown <= 0) return;
+    const timer = setTimeout(() => setResendCooldown((c) => c - 1), 1000);
+    return () => clearTimeout(timer);
+  }, [resendCooldown]);
 
-  const validateStep1 = () => {
-    if (!formData.nombre || !formData.apellido) {
-      setError("Nombre y apellido son obligatorios");
-      return false;
-    }
-    if (!formData.email || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(formData.email)) {
-      setError("Correo electrónico inválido");
-      return false;
-    }
-    if (!isAllowedEmailDomain(formData.email)) {
-      setError(DOMAIN_ERROR_MESSAGE);
-      return false;
-    }
-    if (!formData.telefono || formData.telefono.length !== 10) {
-      setError("El teléfono debe tener exactamente 10 dígitos");
-      return false;
-    }
-    if (!formData.numero_documento) {
-      setError("Número de documento es obligatorio");
-      return false;
-    }
-    if (!formData.fecha_nacimiento) {
-      setError("Fecha de nacimiento es obligatoria. Selecciona día, mes y año.");
-      return false;
-    }
-    // Validar que la fecha tiene formato correcto (YYYY-MM-DD)
-    const dateRegex = /^\d{4}-\d{2}-\d{2}$/;
-    if (!dateRegex.test(formData.fecha_nacimiento)) {
-      setError("Fecha de nacimiento incompleta. Asegúrate de seleccionar día, mes y año.");
-      return false;
-    }
-    if (!formData.contrasena || formData.contrasena.length < 8) {
-      setError("La contraseña debe tener al menos 8 caracteres");
-      return false;
-    }
-    if (formData.contrasena !== formData.confirmPassword) {
-      setError("Las contraseñas no coinciden");
-      return false;
-    }
-    return true;
-  };
-
-  const handleSendOTP = async (method?: 'email' | 'whatsapp') => {
-    setIsLoading(true);
+  const handleSendOtp = async () => {
     setError("");
 
-    // Usar el método pasado como parámetro o el método actual
-    const methodToUse = method || sendMethod;
-
-    try {
-      if (methodToUse === 'email') {
-        // Enviar OTP por email
-        await apiPost("/api/auth/otp/send-email-register", {
-          email: formData.email,
-        });
-      } else {
-        // Enviar OTP por WhatsApp (método actual)
-        await apiPost("/api/auth/otp/send-register", {
-          telefono: formData.telefono,
-          metodo: "whatsapp",
-        });
-      }
-
-      setOtpSent(true);
-    } catch (err) {
-      const msg = err instanceof Error ? err.message : "Error al enviar código de verificación";
-      setError(msg);
-    } finally {
-      setIsLoading(false);
-    }
-  };
-
-  const validateOTP = () => {
-    if (!otpCode || otpCode.length !== 6) {
-      setError("Código de verificación inválido");
-      return false;
-    }
-    return true;
-  };
-
-  const handleNextStep = async () => {
-    setError("");
-
-    if (currentStep === 1) {
-      if (!validateStep1()) return;
-
-      // Verificar duplicados antes de continuar (solo si los endpoints existen)
-      setIsLoading(true);
-      try {
-        // Intentar verificar email (no bloquear si falla)
-        try {
-          const emailCheck = await apiPost<{ exists: boolean; message?: string }>("/api/auth/check-email", {
-            email: formData.email.toLowerCase(),
-          });
-
-          if (emailCheck.exists) {
-            setError("Este correo electrónico ya está registrado. Por favor, usa otro o inicia sesión.");
-            setHasEmailError(true);
-            setIsLoading(false);
-            return;
-          }
-        } catch (emailCheckError) {
-          console.log("⚠️ Endpoint de validación de email no disponible, continuando sin validar duplicados");
-        }
-
-        // Intentar verificar teléfono (no bloquear si falla)
-        try {
-          const phoneCheck = await apiPost<{ exists: boolean; message?: string }>("/api/auth/check-phone", {
-            telefono: formData.telefono,
-            codigo_pais: formData.codigo_pais,
-          });
-
-          if (phoneCheck.exists) {
-            setError("Este número de teléfono ya está registrado. Por favor, usa otro o inicia sesión.");
-            setHasPhoneError(true);
-            setIsLoading(false);
-            return;
-          }
-        } catch (phoneCheckError) {
-          console.log("⚠️ Endpoint de validación de teléfono no disponible, continuando sin validar duplicados");
-        }
-
-        // Intentar verificar documento (no bloquear si falla)
-        try {
-          const documentCheck = await apiPost<{ exists: boolean; message?: string }>("/api/auth/check-document", {
-            tipo_documento: formData.tipo_documento,
-            numero_documento: formData.numero_documento,
-          });
-
-          if (documentCheck.exists) {
-            setError("Este número de documento ya está registrado. Por favor, usa otro o inicia sesión.");
-            setHasDocumentError(true);
-            setIsLoading(false);
-            return;
-          }
-        } catch (documentCheckError) {
-          console.log("⚠️ Endpoint de validación de documento no disponible, continuando sin validar duplicados");
-        }
-
-        // Crear usuario sin verificar antes de pasar al step 2
-        const result = await apiPost<{
-          message?: string;
-          userId?: string;
-          alreadyExists?: boolean;
-          canVerify?: boolean;
-        }>("/api/auth/register-unverified", {
-          email: formData.email,
-          nombre: formData.nombre,
-          apellido: formData.apellido,
-          contrasena: formData.contrasena,
-          fecha_nacimiento: formData.fecha_nacimiento,
-          telefono: formData.telefono,
-          codigo_pais: formData.codigo_pais,
-          tipo_documento: formData.tipo_documento,
-          numero_documento: formData.numero_documento,
-        });
-
-        // Éxito: guardar userId y continuar al paso 2
-        setUserId(result.userId || null);
-        setHasEmailError(false);
-        setHasPhoneError(false);
-        setHasDocumentError(false);
-        setCurrentStep(2);
-      } catch (err) {
-        const msg = err instanceof Error ? err.message : "Error al crear usuario";
-        setError(msg);
-        await notifyError(msg, "Registro fallido");
-      } finally {
-        setIsLoading(false);
-      }
-    } else if (currentStep === 2) {
-      if (!otpSent) {
-        setError("Debes enviar el código de verificación primero");
-        return;
-      }
-      if (!validateOTP()) return;
-
-      // Verificar OTP con el backend y completar registro
-      setIsLoading(true);
-      try {
-        let result: {
-          access_token: string;
-          user: Usuario;
-          message?: string;
-        };
-
-        if (sendMethod === 'email') {
-          // Verificar OTP por email
-          result = await apiPost("/api/auth/otp/verify-email", {
-            email: formData.email,
-            codigo: otpCode,
-          });
-        } else {
-          // Verificar OTP por WhatsApp (método actual)
-          result = await apiPost("/api/auth/otp/verify-register", {
-            telefono: formData.telefono,
-            codigo: otpCode,
-          });
-        }
-
-        // Guardar token y usuario - registro completado
-        if (result.access_token && result.user) {
-          localStorage.setItem("imagiq_token", result.access_token);
-          document.cookie = `imagiq_token=1; path=/; max-age=${60 * 60 * 24 * 30}; SameSite=Lax`;
-          localStorage.setItem("imagiq_user", JSON.stringify(result.user));
-
-          await login({
-            id: result.user.id,
-            email: result.user.email,
-            nombre: result.user.nombre,
-            apellido: result.user.apellido,
-            numero_documento: result.user.numero_documento,
-            telefono: result.user.telefono,
-            role: result.user.rol ?? 2, // Rol 2 = usuario registrado
-          });
-        }
-
-        await notifyRegisterSuccess(formData.email);
-
-        // Opcional: ir a paso 3 para dirección o saltar directo
-        setCurrentStep(3);
-      } catch (err) {
-        const msg = err instanceof Error ? err.message : "Error al verificar código";
-        setError(msg);
-      } finally {
-        setIsLoading(false);
-      }
-    } else if (currentStep === 3) {
-      // Paso 3: dirección - solo avanzar o ir a home
-      // Limpiar progreso guardado al completar
-      localStorage.removeItem("create_account_progress");
-      router.push("/");
-    } else if (currentStep === 4) {
-      // Paso 4: pago - ir a home
-      // Limpiar progreso guardado al completar
-      localStorage.removeItem("create_account_progress");
-      router.push("/");
-    }
-  };
-
-  const handleSkipStep = async () => {
-    // Al omitir pasos opcionales (3 y 4), asegurar que el usuario esté autenticado
-    // porque ya completó los pasos requeridos (1: info personal, 2: verificación OTP)
-    
-    // Verificar que hay token y usuario guardados (del paso 2)
-    const token = localStorage.getItem("imagiq_token");
-    const userInfo = localStorage.getItem("imagiq_user");
-    
-    if (!token || !userInfo) {
-      console.warn("⚠️ No hay sesión activa al omitir. Redirigiendo a login...");
-      router.push("/login");
+    if (!email || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+      setError("Ingresa un correo electrónico válido");
       return;
     }
 
-    // Asegurar que el contexto de autenticación esté sincronizado
-    try {
-      const user = JSON.parse(userInfo);
-      await login({
-        id: user.id,
-        email: user.email,
-        nombre: user.nombre,
-        apellido: user.apellido,
-        numero_documento: user.numero_documento,
-        telefono: user.telefono,
-        role: user.rol ?? user.role ?? 2, // Rol 2 = usuario registrado
-      });
-      console.log("✅ Sesión iniciada automáticamente al omitir paso opcional");
-    } catch (err) {
-      console.error("❌ Error al iniciar sesión automáticamente:", err);
+    if (!isAllowedEmailDomain(email)) {
+      setError(DOMAIN_ERROR_MESSAGE);
+      return;
     }
 
-    // Limpiar progreso guardado al saltar pasos opcionales
-    localStorage.removeItem("create_account_progress");
-    
-    // Los pasos 3 y 4 son opcionales, ir directo a home CON sesión iniciada
-    router.push("/");
-  };
-
-  const handleChangeEmail = async (newEmail: string) => {
     setIsLoading(true);
-    setError("");
     try {
-      await apiPost("/api/auth/update-email", {
-        userId: userId, // Usar userId en lugar de email
-        newEmail: newEmail,
+      const result = await apiPost<{ message: string; otpLength: number }>("/api/auth/kiosk/send-otp", {
+        email: email.toLowerCase().trim(),
       });
 
-      // Actualizar el email en el formulario
-      setFormData({ ...formData, email: newEmail });
-      setOtpSent(false); // Resetear estado de OTP
-      setOtpCode(""); // Limpiar código OTP anterior
+      const len = result.otpLength || 4;
+      setOtpLength(len);
+      setOtpDigits(new Array(len).fill(""));
+      setStep("otp");
+      setResendCooldown(60);
     } catch (err) {
-      const msg = err instanceof Error ? err.message : "Error al actualizar email";
+      const msg = err instanceof Error ? err.message : "Error al enviar el código";
       setError(msg);
-      await notifyError(msg, "Actualización fallida");
     } finally {
       setIsLoading(false);
     }
   };
 
-  const handleChangePhone = async (newPhone: string) => {
-    setIsLoading(true);
+  const handleResendOtp = async () => {
+    if (resendCooldown > 0) return;
     setError("");
+    setIsLoading(true);
     try {
-      await apiPost("/api/auth/update-phone", {
-        userId: userId, // Usar userId en lugar de email
-        telefono: newPhone,
-        codigo_pais: formData.codigo_pais,
+      const result = await apiPost<{ message: string; otpLength: number }>("/api/auth/kiosk/send-otp", {
+        email: email.toLowerCase().trim(),
       });
-
-      // Actualizar el teléfono en el formulario
-      setFormData({ ...formData, telefono: newPhone });
-      setOtpSent(false); // Resetear estado de OTP
-      setOtpCode(""); // Limpiar código OTP anterior
+      const len = result.otpLength || 4;
+      setOtpLength(len);
+      setOtpDigits(new Array(len).fill(""));
+      setResendCooldown(60);
     } catch (err) {
-      const msg = err instanceof Error ? err.message : "Error al actualizar teléfono";
+      const msg = err instanceof Error ? err.message : "Error al reenviar el código";
       setError(msg);
-      await notifyError(msg, "Actualización fallida");
     } finally {
       setIsLoading(false);
     }
   };
 
-  const renderStepContent = () => {
-    switch (currentStep) {
-      case 1:
-        return (
-          <PersonalInfoStep
-            formData={formData}
-            onChange={(data) => setFormData({ ...formData, ...data })}
-            disabled={isLoading}
-            onValidationChange={(hasErrors) => {
-              setHasEmailError(hasErrors);
-              setHasPhoneError(hasErrors);
-            }}
-          />
-        );
-      case 2:
-        return (
-          <OTPStep
-            email={formData.email}
-            telefono={formData.telefono}
-            otpCode={otpCode}
-            otpSent={otpSent}
-            sendMethod={sendMethod}
-            onOTPChange={setOtpCode}
-            onSendOTP={handleSendOTP}
-            onMethodChange={setSendMethod}
-            onChangeEmail={handleChangeEmail}
-            onChangePhone={handleChangePhone}
-            disabled={isLoading}
-          />
-        );
-      case 3:
-        return (
-          <AddressStep 
-            onFormValidChange={setIsAddressFormValid}
-            onSubmitRef={addressSubmitRef}
-            onAddressAdded={() => {
-              // Cuando se agregue una dirección, avanzar automáticamente
-              // Limpiar progreso guardado
-              localStorage.removeItem("create_account_progress");
-              // Ir a home
-              router.push("/");
-            }}
-          />
-        );
-      case 4:
-        return <PaymentStep />;
-      default:
-        return null;
+  const handleOtpChange = (index: number, value: string) => {
+    if (!/^\d*$/.test(value)) return;
+
+    const newDigits = [...otpDigits];
+
+    if (value.length > 1) {
+      const chars = value.slice(0, otpLength).split("");
+      chars.forEach((char, i) => {
+        if (index + i < otpLength) {
+          newDigits[index + i] = char;
+        }
+      });
+      setOtpDigits(newDigits);
+      const nextIndex = Math.min(index + chars.length, otpLength - 1);
+      otpRefs.current[nextIndex]?.focus();
+
+      // Auto-verificar si se completaron todos los dígitos (ej: pegar código)
+      if (newDigits.every((d) => d !== "")) {
+        setTimeout(() => autoVerifyOtp(newDigits), 100);
+      }
+      return;
+    }
+
+    newDigits[index] = value;
+    setOtpDigits(newDigits);
+
+    if (value && index < otpLength - 1) {
+      otpRefs.current[index + 1]?.focus();
+    }
+
+    // Auto-verificar si se completó el último dígito
+    if (value && newDigits.every((d) => d !== "")) {
+      setTimeout(() => autoVerifyOtp(newDigits), 100);
     }
   };
+
+  const autoVerifyOtp = async (digits: string[]) => {
+    const codigo = digits.join("");
+    if (codigo.length !== otpLength || isLoading) return;
+
+    setError("");
+    setIsLoading(true);
+    try {
+      const result = await apiPost<VerifyOtpResponse>("/api/auth/kiosk/verify-otp", {
+        email: email.toLowerCase().trim(),
+        codigo,
+      });
+      setTienda(result.tienda);
+      setStep("confirm");
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : "Código incorrecto";
+      setError(msg);
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  const handleOtpKeyDown = (index: number, e: React.KeyboardEvent) => {
+    if (e.key === "Backspace" && !otpDigits[index] && index > 0) {
+      otpRefs.current[index - 1]?.focus();
+    }
+    if (e.key === "Enter") {
+      handleVerifyOtp();
+    }
+  };
+
+  const handleVerifyOtp = async () => {
+    const codigo = otpDigits.join("");
+    if (codigo.length !== otpLength) {
+      setError(`Ingresa el código completo de ${otpLength} dígitos`);
+      return;
+    }
+
+    setError("");
+    setIsLoading(true);
+    try {
+      const result = await apiPost<VerifyOtpResponse>("/api/auth/kiosk/verify-otp", {
+        email: email.toLowerCase().trim(),
+        codigo,
+      });
+
+      setTienda(result.tienda);
+      setStep("confirm");
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : "Código incorrecto";
+      setError(msg);
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  const handleRegister = async () => {
+    setError("");
+
+    if (!allPasswordChecksValid) {
+      setError("La contraseña no cumple con todos los requisitos");
+      return;
+    }
+
+    if (contrasena !== confirmPassword) {
+      setError("Las contraseñas no coinciden");
+      return;
+    }
+
+    setIsLoading(true);
+    try {
+      const result = await apiPost<{
+        access_token: string;
+        store: TiendaData & { id: string };
+      }>("/api/auth/kiosk/register", {
+        email: email.toLowerCase().trim(),
+        contrasena,
+      });
+
+      if (result.access_token) {
+        localStorage.setItem("imagiq_token", result.access_token);
+        document.cookie = `imagiq_token=1; path=/; max-age=${60 * 60 * 24}; SameSite=Lax`;
+        localStorage.setItem(
+          "imagiq_user",
+          JSON.stringify({
+            id: result.store.id,
+            email: result.store.email,
+            nombre: result.store.descripcion,
+            apellido: "",
+            numero_documento: "",
+            telefono: result.store.telefono,
+            role: 5,
+          })
+        );
+
+        await login({
+          id: result.store.id,
+          email: result.store.email,
+          nombre: result.store.descripcion,
+          apellido: "",
+          numero_documento: "",
+          telefono: result.store.telefono,
+          role: 5,
+        });
+      }
+
+      setStep("success");
+
+      setTimeout(() => {
+        router.push("/");
+      }, 2000);
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : "Error al crear la cuenta";
+      setError(msg);
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  const hasCoordinates = tienda?.latitud && tienda?.longitud &&
+    !isNaN(parseFloat(tienda.latitud)) && !isNaN(parseFloat(tienda.longitud));
 
   return (
     <div className="flex min-h-screen">
-      {/* Panel izquierdo - Branding (solo desktop) */}
-      <div className="hidden lg:flex lg:w-1/3 bg-black text-white items-center justify-center">
+      {/* Panel izquierdo - Branding */}
+      <div className="hidden lg:flex lg:w-1/2 bg-black text-white items-center justify-center">
         <h1 className="text-5xl font-bold tracking-tight">Samsung Store</h1>
       </div>
 
       {/* Panel derecho - Formulario */}
-      <div className="flex-1 flex items-start justify-center p-4 pt-6 sm:p-6 overflow-y-auto">
-        <div className="w-full max-w-2xl space-y-6">
-          {/* Mobile: Logo + Indicador arriba */}
-          <div className="lg:hidden space-y-4">
-            <div className="flex justify-center">
-              <Image
-                src="/frame_black.png"
-                alt="ImagiQ"
-                width={48}
-                height={48}
-                priority
-              />
-            </div>
-            <StepIndicator steps={STEPS} currentStep={currentStep} />
-          </div>
-
-          <Card className="border-none shadow-none">
-            <CardHeader>
-              <CardTitle className="text-xl font-bold">
-                {currentStep === 1 && "Información personal"}
-                {currentStep === 2 && "Verificación"}
-                {currentStep === 3 && "Dirección de envío"}
-                {currentStep === 4 && "Método de pago"}
-              </CardTitle>
-              <CardDescription>
-                {currentStep === 1 && "Completa tus datos para crear tu cuenta corporativa"}
-                {currentStep === 2 && "Verifica tu identidad con el código enviado"}
-                {currentStep === 3 && "Agrega una dirección de envío (opcional)"}
-                {currentStep === 4 && "Configura tu método de pago (opcional)"}
-              </CardDescription>
-            </CardHeader>
-
-            <CardContent className="space-y-6">
-              {renderStepContent()}
-
-              {error && (
-                <div className="text-sm text-red-600 text-center bg-red-50 py-2 px-4 rounded-lg">
-                  {error}
-                </div>
-              )}
-
-              <div className="flex gap-3 pt-4">
-                {/* Botón Atrás solo en paso 1 y paso 4 (NO en paso 2 ni paso 3) */}
-                {currentStep === 1 && (
-                  <Button
-                    type="button"
-                    variant="outline"
-                    onClick={() => router.push("/login")}
-                    disabled={isLoading}
-                    className="flex-1"
-                  >
-                    Volver al login
-                  </Button>
-                )}
-                {currentStep === 4 && (
-                  <Button
-                    type="button"
-                    variant="outline"
-                    onClick={() => setCurrentStep(currentStep - 1)}
-                    disabled={isLoading}
-                    className="flex-1"
-                  >
-                    Atrás
-                  </Button>
-                )}
-                {/* En step 2: mostrar "Enviar código" si no se ha enviado, o "Continuar" si ya se envió */}
-                {currentStep === 2 && !otpSent ? (
-                  <Button
-                    type="button"
-                    onClick={() => handleSendOTP(sendMethod)}
-                    disabled={isLoading}
-                    className="flex-1 bg-black text-white hover:bg-gray-800"
-                  >
-                    {isLoading ? "Enviando..." : "Enviar código"}
-                  </Button>
-                ) : currentStep === 3 ? (
-                  // En step 3: El botón "Continuar" ejecuta el submit del formulario de dirección
-                  <Button
-                    type="button"
-                    onClick={() => {
-                      if (addressSubmitRef.current) {
-                        addressSubmitRef.current();
-                      }
+      <div className="flex-1 flex items-start justify-center px-8 py-6 sm:px-12 sm:py-8 overflow-y-auto">
+        <div className="w-full my-auto space-y-6">
+          {/* Step: Email */}
+          {step === "email" && (
+            <Card className="border-none shadow-none">
+              <CardHeader className="text-center">
+                <CardTitle className="text-2xl font-bold">Crear cuenta de tienda</CardTitle>
+                <CardDescription>
+                  Ingresa el correo corporativo de tu tienda para comenzar
+                </CardDescription>
+              </CardHeader>
+              <CardContent className="space-y-4 max-w-md mx-auto">
+                <div className="space-y-2">
+                  <Label htmlFor="email">Correo electrónico de la tienda</Label>
+                  <Input
+                    id="email"
+                    type="email"
+                    placeholder="ses116@imagiq.co"
+                    value={email}
+                    onChange={(e) => {
+                      setEmail(e.target.value);
+                      setError("");
                     }}
-                    disabled={isLoading || !isAddressFormValid}
-                    className="flex-1 bg-black text-white hover:bg-gray-800"
-                  >
-                    {isLoading ? "Guardando..." : "Continuar"}
-                  </Button>
-                ) : (
+                    onKeyDown={(e) => e.key === "Enter" && handleSendOtp()}
+                    disabled={isLoading}
+                    autoFocus
+                  />
+                </div>
+
+                <p className="text-xs text-gray-500">
+                  Solo disponible para correos @botopia.tech, @imagiq.com o @imagiq.co
+                </p>
+
+                {error && (
+                  <div className="text-sm text-red-600 text-center bg-red-50 py-2 px-4 rounded-lg">
+                    {error}
+                  </div>
+                )}
+
+                <Button
+                  type="button"
+                  onClick={handleSendOtp}
+                  disabled={isLoading || !email}
+                  className="w-full bg-black text-white hover:bg-gray-800"
+                >
+                  {isLoading ? (
+                    <>
+                      <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                      Enviando código...
+                    </>
+                  ) : (
+                    "Continuar"
+                  )}
+                </Button>
+
+                <div className="relative">
+                  <Separator />
+                  <span className="absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 bg-white px-4 text-xs text-gray-500">
+                    ¿Ya tienes cuenta?
+                  </span>
+                </div>
+
+                <Button
+                  type="button"
+                  variant="outline"
+                  onClick={() => router.push("/login")}
+                  className="w-full"
+                >
+                  Iniciar sesión
+                </Button>
+              </CardContent>
+            </Card>
+          )}
+
+          {/* Step: OTP */}
+          {step === "otp" && (
+            <Card className="border-none shadow-none">
+              <CardHeader className="text-center">
+                <div className="mx-auto mb-2 flex h-12 w-12 items-center justify-center rounded-full bg-gray-100">
+                  <Mail className="h-6 w-6 text-gray-600" />
+                </div>
+                <CardTitle className="text-2xl font-bold">Verificar correo</CardTitle>
+                <CardDescription>
+                  Ingresa el código de {otpLength} dígitos enviado a{" "}
+                  <span className="font-medium text-gray-900">{email}</span>
+                </CardDescription>
+              </CardHeader>
+              <CardContent className="space-y-5 max-w-md mx-auto">
+                <div className="flex justify-center gap-3">
+                  {otpDigits.map((digit, index) => (
+                    <Input
+                      key={index}
+                      ref={(el) => { otpRefs.current[index] = el; }}
+                      type="text"
+                      inputMode="numeric"
+                      maxLength={otpLength}
+                      value={digit}
+                      onChange={(e) => handleOtpChange(index, e.target.value)}
+                      onKeyDown={(e) => handleOtpKeyDown(index, e)}
+                      disabled={isLoading}
+                      className="w-14 h-14 text-center text-2xl font-bold"
+                      autoFocus={index === 0}
+                    />
+                  ))}
+                </div>
+
+                {error && (
+                  <div className="text-sm text-red-600 text-center bg-red-50 py-2 px-4 rounded-lg">
+                    {error}
+                  </div>
+                )}
+
+                <Button
+                  type="button"
+                  onClick={handleVerifyOtp}
+                  disabled={isLoading || otpDigits.join("").length !== otpLength}
+                  className="w-full bg-black text-white hover:bg-gray-800"
+                >
+                  {isLoading ? (
+                    <>
+                      <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                      Verificando...
+                    </>
+                  ) : (
+                    "Verificar código"
+                  )}
+                </Button>
+
+                <div className="text-center text-sm text-gray-500">
+                  {resendCooldown > 0 ? (
+                    <span>Reenviar código en {resendCooldown}s</span>
+                  ) : (
+                    <button
+                      type="button"
+                      onClick={handleResendOtp}
+                      disabled={isLoading}
+                      className="text-gray-700 hover:text-black underline"
+                    >
+                      Reenviar código
+                    </button>
+                  )}
+                </div>
+
+                <Button
+                  type="button"
+                  variant="outline"
+                  onClick={() => {
+                    setStep("email");
+                    setOtpDigits(new Array(otpLength).fill(""));
+                    setError("");
+                  }}
+                  className="w-full"
+                >
+                  Cambiar correo
+                </Button>
+              </CardContent>
+            </Card>
+          )}
+
+          {/* Step: Datos de tienda + Contraseña (todo junto) */}
+          {step === "confirm" && tienda && (
+            <Card className="border-none shadow-none">
+              <CardHeader>
+                <button
+                  type="button"
+                  onClick={() => router.push("/login")}
+                  className="flex items-center gap-1.5 text-sm text-gray-500 hover:text-black mb-3 transition-colors"
+                >
+                  <ArrowLeft className="h-4 w-4" />
+                  Volver a iniciar sesión
+                </button>
+                <CardTitle className="text-3xl font-bold">Confirma tu tienda</CardTitle>
+                <CardDescription className="text-base">
+                  Verifica los datos y crea una contraseña para tu cuenta
+                </CardDescription>
+              </CardHeader>
+              <CardContent className="space-y-6">
+                {/* Info tienda + Mapa lado a lado en desktop */}
+                <div className="grid grid-cols-1 lg:grid-cols-2 gap-5">
+                  {/* Datos de la tienda */}
+                  <div className="bg-gray-50 rounded-xl p-5 space-y-4">
+                    <div className="flex items-start gap-3">
+                      <Store className="h-6 w-6 text-gray-600 mt-0.5 shrink-0" />
+                      <div>
+                        <p className="font-semibold text-lg">{tienda.descripcion}</p>
+                        <p className="text-sm text-gray-500">{tienda.email}</p>
+                      </div>
+                    </div>
+
+                    <div className="flex items-start gap-3">
+                      <MapPin className="h-6 w-6 text-gray-600 mt-0.5 shrink-0" />
+                      <div>
+                        <p className="text-base">{tienda.direccion}</p>
+                        <p className="text-sm text-gray-500">
+                          {tienda.ciudad}, {tienda.departamento}
+                        </p>
+                      </div>
+                    </div>
+
+                    {tienda.horario && (
+                      <div className="flex items-start gap-3">
+                        <Clock className="h-6 w-6 text-gray-600 mt-0.5 shrink-0" />
+                        <p className="text-sm">{tienda.horario}</p>
+                      </div>
+                    )}
+
+                    {tienda.telefono && (
+                      <div className="flex items-start gap-3">
+                        <Phone className="h-6 w-6 text-gray-600 mt-0.5 shrink-0" />
+                        <p className="text-base">
+                          {tienda.telefono}
+                          {tienda.extension ? ` ext. ${tienda.extension}` : ""}
+                        </p>
+                      </div>
+                    )}
+                  </div>
+
+                  {/* Mapa */}
+                  {hasCoordinates && (
+                    <GoogleMap
+                      lat={parseFloat(tienda.latitud)}
+                      lng={parseFloat(tienda.longitud)}
+                      title={tienda.descripcion}
+                    />
+                  )}
+                </div>
+
+                {/* Contraseña - ambos campos en fila */}
+                <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+                  <div className="space-y-2">
+                    <Label htmlFor="contrasena">Contraseña</Label>
+                    <div className="relative">
+                      <Input
+                        id="contrasena"
+                        type={showPassword ? "text" : "password"}
+                        placeholder="Ingresa tu contraseña"
+                        value={contrasena}
+                        onChange={(e) => {
+                          setContrasena(e.target.value);
+                          setError("");
+                        }}
+                        disabled={isLoading}
+                      />
+                      <button
+                        type="button"
+                        onClick={() => setShowPassword(!showPassword)}
+                        className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600"
+                      >
+                        {showPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+                      </button>
+                    </div>
+                    {/* Requisitos de contraseña */}
+                    {contrasena.length > 0 && (
+                      <div className="grid grid-cols-2 gap-x-3 gap-y-1">
+                        {passwordChecks.map((check) => (
+                          <div key={check.label} className="flex items-center gap-1.5 text-xs">
+                            {check.valid ? (
+                              <Check className="h-3.5 w-3.5 text-green-500 shrink-0" />
+                            ) : (
+                              <X className="h-3.5 w-3.5 text-gray-400 shrink-0" />
+                            )}
+                            <span className={check.valid ? "text-green-600" : "text-gray-500"}>
+                              {check.label}
+                            </span>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+
+                  <div className="space-y-2">
+                    <Label htmlFor="confirmPassword">Confirmar contraseña</Label>
+                    <div className="relative">
+                      <Input
+                        id="confirmPassword"
+                        type={showConfirmPassword ? "text" : "password"}
+                        placeholder="Repite tu contraseña"
+                        value={confirmPassword}
+                        onChange={(e) => {
+                          setConfirmPassword(e.target.value);
+                          setError("");
+                        }}
+                        onKeyDown={(e) => e.key === "Enter" && handleRegister()}
+                        disabled={isLoading}
+                      />
+                      <button
+                        type="button"
+                        onClick={() => setShowConfirmPassword(!showConfirmPassword)}
+                        className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600"
+                      >
+                        {showConfirmPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+                      </button>
+                    </div>
+                    {confirmPassword.length > 0 && contrasena !== confirmPassword && (
+                      <p className="text-xs text-red-500 flex items-center gap-1">
+                        <X className="h-3.5 w-3.5 shrink-0" />
+                        Las contraseñas no coinciden
+                      </p>
+                    )}
+                  </div>
+                </div>
+
+                {error && (
+                  <div className="text-sm text-red-600 text-center bg-red-50 py-2 px-4 rounded-lg">
+                    {error}
+                  </div>
+                )}
+
+                <div className="flex gap-3">
                   <Button
                     type="button"
-                    onClick={handleNextStep}
-                    disabled={
-                      isLoading ||
-                      (currentStep === 1 && (hasEmailError || hasPhoneError || hasDocumentError)) ||
-                      (currentStep === 2 && (!otpSent || otpCode.length !== 6))
-                    }
+                    variant="outline"
+                    onClick={() => {
+                      setTienda(null);
+                      setStep("email");
+                      setOtpDigits(new Array(otpLength).fill(""));
+                      setContrasena("");
+                      setConfirmPassword("");
+                      setError("");
+                    }}
+                    disabled={isLoading}
+                    className="flex-1"
+                  >
+                    Cambiar correo
+                  </Button>
+                  <Button
+                    type="button"
+                    onClick={handleRegister}
+                    disabled={isLoading || !allPasswordChecksValid || !confirmPassword || contrasena !== confirmPassword}
                     className="flex-1 bg-black text-white hover:bg-gray-800"
                   >
-                    {isLoading
-                      ? "Procesando..."
-                      : currentStep === 4
-                      ? "Finalizar"
-                      : "Continuar"}
+                    {isLoading ? (
+                      <>
+                        <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                        Creando cuenta...
+                      </>
+                    ) : (
+                      "Crear cuenta"
+                    )}
                   </Button>
-                )}
-                {!STEPS[currentStep - 1].required && (
-                  <Button type="button" variant="ghost" onClick={handleSkipStep} disabled={isLoading}>
-                    Omitir
-                  </Button>
-                )}
-              </div>
-            </CardContent>
-          </Card>
+                </div>
+              </CardContent>
+            </Card>
+          )}
 
-          {/* Login prompt */}
-          <div className="text-center space-y-4">
-            <div className="text-xs text-gray-500 lg:hidden">
-              <p>
-                Solo disponible para correos @botopia.tech, @imagiq.com o @imagiq.co
-              </p>
-            </div>
-
-            <div className="relative">
-              <Separator />
-              <span className="absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 bg-white px-4 text-xs text-gray-500">
-                ¿Ya tienes cuenta?
-              </span>
-            </div>
-
-            <Button
-              type="button"
-              variant="outline"
-              onClick={() => {
-                localStorage.removeItem("create_account_progress");
-                router.push("/login");
-              }}
-              className="w-full"
-            >
-              Iniciar sesión
-            </Button>
-          </div>
+          {/* Step: Success */}
+          {step === "success" && (
+            <Card className="border-none shadow-none">
+              <CardContent className="flex flex-col items-center justify-center py-12 space-y-4">
+                <CheckCircle2 className="h-16 w-16 text-green-500" />
+                <h2 className="text-2xl font-bold text-center">¡Cuenta creada exitosamente!</h2>
+                <p className="text-gray-500 text-center">
+                  Redirigiendo...
+                </p>
+              </CardContent>
+            </Card>
+          )}
         </div>
       </div>
     </div>

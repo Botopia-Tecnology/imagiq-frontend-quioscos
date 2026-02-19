@@ -24,7 +24,11 @@ const UserOptionsDropdown: React.FC<UserOptionsDropdownProps> = ({
   const [open, setOpen] = useState(false);
   const dropdownRef = useRef<HTMLDivElement>(null);
 
-  const primerNombre = user?.nombre?.split(" ")[0] || "";
+  const userRole = user?.role ?? user?.rol;
+  // Para tiendas (rol 5), mostrar nombre completo; para otros, solo el primer nombre
+  const displayName = userRole === 5
+    ? (user?.nombre || "")
+    : (user?.nombre?.split(" ")[0] || "");
 
   // Manejo simple del dropdown
   const handleToggle = () => setOpen(!open);
@@ -63,7 +67,6 @@ const UserOptionsDropdown: React.FC<UserOptionsDropdownProps> = ({
   // 1. No está autenticado
   // 2. No tiene nombre
   // 3. Es usuario invitado (rol 3) - los invitados no tienen menú de perfil
-  const userRole = user?.role ?? user?.rol;
   if (!isAuthenticated || !user?.nombre || userRole === 3) return null;
 
   return (
@@ -71,17 +74,17 @@ const UserOptionsDropdown: React.FC<UserOptionsDropdownProps> = ({
       {/* Botón del usuario */}
       <button
         className={cn(
-          "flex flex-col items-end justify-center py-2 text-xs md:text-sm font-medium leading-tight focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-opacity-50 rounded-md transition-colors duration-300 hover:opacity-80",
+          "flex flex-col items-center justify-center py-2 text-xs md:text-sm font-medium leading-tight focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-opacity-50 rounded-md transition-colors duration-300 hover:opacity-80 max-w-[120px] text-center",
           showWhiteItems ? "text-white" : "text-black"
         )}
-        aria-label={`Opciones de usuario para ${primerNombre}`}
+        aria-label={`Opciones de usuario para ${displayName}`}
         aria-haspopup="menu"
         aria-expanded={open}
         onClick={handleToggle}
         type="button"
       >
         <span>Hola,</span>
-        <span className="font-semibold">{primerNombre}</span>
+        <span className="font-semibold leading-snug">{displayName}</span>
       </button>
 
       {/* Dropdown menu */}
@@ -111,6 +114,7 @@ const UserOptionsDropdown: React.FC<UserOptionsDropdownProps> = ({
             onClick={() => {
               handleClose();
               logout();
+              router.push("/login");
             }}
           >
             <span className="block font-medium">Cerrar sesión</span>

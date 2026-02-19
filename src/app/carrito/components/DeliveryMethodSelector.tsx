@@ -25,6 +25,7 @@ interface DeliveryMethodSelectorProps {
   onReceivedByClientChange?: (receivedByClient: boolean) => void;
   recipientData?: RecipientData;
   onRecipientDataChange?: (data: RecipientData) => void;
+  kioskMode?: boolean; // Kiosk: mostrar "Agregar dirección" en vez de "Seleccionar dirección"
 }
 
 export const DeliveryMethodSelector: React.FC<DeliveryMethodSelectorProps> = ({
@@ -43,6 +44,7 @@ export const DeliveryMethodSelector: React.FC<DeliveryMethodSelectorProps> = ({
   onReceivedByClientChange,
   recipientData: recipientDataProp,
   onRecipientDataChange,
+  kioskMode = false,
 }) => {
   // Estado local con valores controlados desde props o valores por defecto
   const [receivedByClientLocal, setReceivedByClientLocal] = React.useState(() => {
@@ -210,13 +212,15 @@ export const DeliveryMethodSelector: React.FC<DeliveryMethodSelectorProps> = ({
                     }}
                     disabled={addressLoading}
                   >
-                    {address ? "Cambiar dirección" : "Seleccionar dirección"}
+                    {kioskMode
+                      ? (address ? "Cambiar dirección" : "Agregar dirección")
+                      : (address ? "Cambiar dirección" : "Seleccionar dirección")}
                   </button>
                 )}
               </div>
 
-              {/* Checkbox para indicar quién recibirá el producto - solo visible con envío a domicilio */}
-              {deliveryMethod === "domicilio" && (
+              {/* Checkbox para indicar quién recibirá el producto - solo visible con envío a domicilio, ocultar en kiosk */}
+              {deliveryMethod === "domicilio" && !kioskMode && (
                 <div className="ml-9 mt-4 space-y-4">
                   <label className="flex items-start gap-3 cursor-pointer">
                     <input

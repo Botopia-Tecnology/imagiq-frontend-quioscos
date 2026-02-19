@@ -10,6 +10,7 @@ import {
   getFullCandidateStoresResponseFromCache,
   setGlobalCanPickUpCache,
 } from "../utils/globalCanPickUpCache";
+import { getUserId } from "../utils/getUserId";
 
 interface ShippingVerification {
   envio_imagiq: boolean;
@@ -180,16 +181,8 @@ export default function Step4OrderSummary({
     if (typeof window === 'undefined') return null;
 
     try {
-      // 1. Obtener usuario
-      // IMPORTANTE: Obtener userId de forma consistente usando la utilidad centralizada
-      const storedUser = localStorage.getItem("imagiq_user");
-      let userId: string | undefined;
-      if (storedUser) {
-        const user = JSON.parse(storedUser);
-        userId = user.id || user.user_id;
-      }
-
-      // console.log('🔍 [Step4OrderSummary INIT globalCanPickUp] userId:', userId);
+      // 1. Obtener usuario (usar getUserId que prioriza kiosk_client_id)
+      const userId = getUserId() ?? undefined;
 
       if (!userId) return null;
 
@@ -294,16 +287,10 @@ export default function Step4OrderSummary({
     }
 
     try {
-      // Repetir lógica para consistencia
-      const storedUser = localStorage.getItem("imagiq_user");
-      let userId: string | undefined;
-      if (storedUser) {
-        const user = JSON.parse(storedUser);
-        userId = user.id || user.user_id;
-      }
+      // Obtener userId (usar getUserId que prioriza kiosk_client_id)
+      const userId = getUserId() ?? undefined;
 
       if (!userId) {
-        // console.log('🔍 [Step4OrderSummary INIT isLoadingCanPickUp] -> false (no userId)');
         return false; // Sin usuario no podemos validar, no bloquear
       }
 
@@ -506,6 +493,9 @@ export default function Step4OrderSummary({
   // Se ejecuta cuando el componente se monta Y cuando el caché se actualiza desde useDelivery
   // IMPORTANTE: Esta función SOLO lee del caché, NO hace llamadas al endpoint
   const fetchGlobalCanPickUp = React.useCallback(async () => {
+    // Si no se debe calcular canPickUp (e.g. kiosk), no hacer nada
+    if (!shouldCalculateCanPickUp) return;
+
     // Generar ID único para esta ejecución y actualizar ref para evitar race conditions
     const requestId = Date.now();
     lastRequestIdRef.current = requestId;
@@ -532,9 +522,9 @@ export default function Step4OrderSummary({
           const userRole = userData?.role ?? userData?.rol;
 
           // Permitir cálculo para:
-          // - rol 2 (registrado), rol 3 (invitado), rol 4
+          // - rol 2 (registrado), rol 3 (invitado), rol 4, rol 5 (kiosk)
           // - O si el rol es undefined pero hay userId (usuario en proceso de registro/checkout)
-          if (userRole === 2 || userRole === 3 || userRole === 4 || (userRole === undefined && userId)) {
+          if (userRole === 2 || userRole === 3 || userRole === 4 || userRole === 5 || (userRole === undefined && userId)) {
             shouldCalculateForUser = true;
           }
         } else {
@@ -778,16 +768,9 @@ export default function Step4OrderSummary({
     const updateDebugInfoFromCache = () => {
       // console.log('🔍 [Step4OrderSummary] updateDebugInfoFromCache llamada');
       try {
-        // Obtener userId
-        const storedUser = localStorage.getItem("imagiq_user");
-        let userId: string | undefined;
-        if (storedUser) {
-          const user = JSON.parse(storedUser);
-          userId = user.id || user.user_id;
-        }
-        // console.log('🔍 [Step4OrderSummary] userId:', userId);
+        // Obtener userId (usar getUserId que prioriza kiosk_client_id)
+        const userId = getUserId() ?? undefined;
         if (!userId) {
-          // console.log('🔍 [Step4OrderSummary] No userId, saliendo');
           return;
         }
 
@@ -1566,15 +1549,8 @@ export default function Step4OrderSummary({
               <div className="flex justify-between">
                 <span>canPickUp (endpoint):</span>
                 <span className="font-mono font-bold">
-                  {isLoadingCanPickUp && shouldCalculateCanPickUp ? (
-                    <span className="text-blue-600 animate-pulse">⏳ calculando...</span>
-                  ) : globalCanPickUp === null ? (
-                    // Mostrar "no aplica" solo cuando no tiene dirección
-                    hasDefaultAddress === false ? (
-                      <span className="text-gray-500">➖ no aplica</span>
-                    ) : (
-                      <span className="text-orange-600">🔄 calculando...</span>
-                    )
+                  {globalCanPickUp === null ? (
+                    <span className="text-gray-500">null</span>
                   ) : globalCanPickUp ? (
                     <span className="text-green-600">✅ true</span>
                   ) : (

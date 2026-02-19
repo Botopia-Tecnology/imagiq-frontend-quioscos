@@ -13,7 +13,7 @@ export interface Usuario {
   email: string;
   email_verificado?: boolean;
   contrasena: string;
-  rol: 1 | 2 | 3 | 4;
+  rol: 1 | 2 | 3 | 4 | 5;
   activo?: boolean;
   bloqueado?: boolean;
   fecha_creacion?: Date;
@@ -61,8 +61,8 @@ export interface User {
   email: string;
   nombre: string;
   apellido: string;
-  role?: 1 | 2 | 3 | 4;
-  rol?: 1 | 2 | 3 | 4; // Compatibilidad con backend (formato español)
+  role?: 1 | 2 | 3 | 4 | 5;
+  rol?: 1 | 2 | 3 | 4 | 5; // Compatibilidad con backend (formato español)
   telefono: string;
   numero_documento: string;
   defaultAddress?: DefaultAddress | null;
