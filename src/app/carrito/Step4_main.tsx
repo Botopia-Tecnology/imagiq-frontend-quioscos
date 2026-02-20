@@ -167,12 +167,13 @@ export default function Step4({
     // Si es tarjeta, debe tener una tarjeta seleccionada
     if (paymentMethod === "tarjeta" && !selectedCardId) return false;
 
-    // Si es PSE, debe tener un banco seleccionado
-    if (paymentMethod === "pse" && !selectedBank) return false;
+    // Si es PSE, debe tener un banco seleccionado (excepto kiosk mode)
+    const userRole = authContext.user?.rol || (authContext.user as any)?.role || loggedUser?.rol;
+    if (paymentMethod === "pse" && !selectedBank && userRole !== 5) return false;
 
     // Si es Addi, siempre está válido (no requiere más datos)
     return true;
-  }, [paymentMethod, selectedCardId, selectedBank]);
+  }, [paymentMethod, selectedCardId, selectedBank, authContext.user?.rol, loggedUser?.rol]);
 
   const handleContinueToNextStep = async (e: React.FormEvent) => {
     // Validar Trade-In antes de continuar

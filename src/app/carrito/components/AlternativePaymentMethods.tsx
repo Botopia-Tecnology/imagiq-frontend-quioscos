@@ -12,6 +12,7 @@ interface AlternativePaymentMethodsProps {
   readonly onMethodChange: (method: PaymentMethod) => void;
   readonly selectedBank?: string;
   readonly onBankChange?: (bankCode: string, bankName?: string) => void;
+  readonly isKiosk?: boolean;
 }
 
 export default function AlternativePaymentMethods({
@@ -19,6 +20,7 @@ export default function AlternativePaymentMethods({
   onMethodChange,
   selectedBank,
   onBankChange,
+  isKiosk = false,
 }: AlternativePaymentMethodsProps) {
   const [banks, setBanks] = useState<{ bankCode: string; bankName: string }[]>(
     []
@@ -56,8 +58,8 @@ export default function AlternativePaymentMethods({
         </div>
       </label>
 
-      {/* Bank selector for PSE */}
-      {selectedMethod === "pse" && (
+      {/* Bank selector for PSE (hidden in kiosk mode — customer selects bank on their phone) */}
+      {selectedMethod === "pse" && !isKiosk && (
         <div className="ml-7 mt-2 mb-4">
           <label
             htmlFor="bank-select"

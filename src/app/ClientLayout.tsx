@@ -27,6 +27,8 @@ const HIDDEN_NAVBAR_ROUTES = [
   "/verify-purchase/",
   "/login",
   "/login/",
+  "/pagar-pse/",
+  "/pagar-addi/",
 ];
 
 function shouldHideNavbar(pathname: string) {
@@ -69,7 +71,9 @@ export default function ClientLayout({
     pathname === "/charging-result" ||
     pathname === "/success-checkout" ||
     pathname === "/carrito/error-checkout" ||
-    (pathname?.startsWith("/login") ?? false);
+    (pathname?.startsWith("/login") ?? false) ||
+    (pathname?.startsWith("/pagar-pse") ?? false) ||
+    (pathname?.startsWith("/pagar-addi") ?? false);
 
   // Identificación automática de usuarios en Clarity
   useClarityIdentity();

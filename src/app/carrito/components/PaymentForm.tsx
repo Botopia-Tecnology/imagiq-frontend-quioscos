@@ -468,8 +468,8 @@ export default function PaymentForm({
               />
             </label>
 
-            {/* Bank selector for PSE */}
-            {paymentMethod === "pse" && (
+            {/* Bank selector for PSE (hidden in kiosk mode — customer selects bank on their phone) */}
+            {paymentMethod === "pse" && userRole !== 5 && (
               <div className="ml-8 mb-3 mt-1">
                 <label
                   htmlFor="bank-select"

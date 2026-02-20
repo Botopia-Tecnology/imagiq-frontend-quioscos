@@ -11,7 +11,11 @@ import {
   Store,
   Edit2,
   User as UserIcon,
+  Package,
+  RefreshCw,
+  LogOut,
 } from "lucide-react";
+import Image from "next/image";
 import { useAuthContext } from "@/features/auth/context";
 import { profileService } from "@/services/profile.service";
 import { toast } from "sonner";
@@ -29,6 +33,7 @@ import {
 import { CheckZeroInterestResponse, BeneficiosDTO, DetalleDispositivoRetoma } from "./types";
 import { apiPost } from "@/lib/api-client";
 import { safeGetLocalStorage } from "@/lib/localStorage";
+import { addressesService } from "@/services/addresses.service";
 import { productEndpoints, deliveryEndpoints, tradeInEndpoints } from "@/lib/api";
 import useSecureStorage from "@/hooks/useSecureStorage";
 import { User } from "@/types/user";
@@ -137,7 +142,7 @@ export default function Step7({ onBack }: Step7Props) {
     useState<CheckZeroInterestResponse | null>(null);
   const [shippingVerification, setShippingVerification] =
     useState<ShippingVerification | null>(null);
-  const { products, calculations } = useCart();
+  const { products, calculations, clearCart } = useCart();
 
   // Calcular ahorro total por descuentos de productos
   const productSavings = useMemo(() => {
@@ -150,10 +155,36 @@ export default function Step7({ onBack }: Step7Props) {
     }, 0);
   }, [products]);
 
-  // Kiosk payment link sent state
-  const [kioskPaymentLinkSent, setKioskPaymentLinkSent] = useState<{ email: string } | null>(null);
+  // Kiosk payment link sent state - restore from localStorage on mount
+  const [kioskPaymentLinkSent, setKioskPaymentLinkSent] = useState<{
+    email: string;
+    orderId?: string;
+    whatsappSent?: boolean;
+    clientData?: Record<string, any>;
+  } | null>(() => {
+    if (typeof window === 'undefined') return null;
+    try {
+      const cached = localStorage.getItem('kiosk_payment_link_sent');
+      if (cached) {
+        const parsed = JSON.parse(cached);
+        if (parsed?.orderId) return parsed;
+      }
+    } catch { /* ignore */ }
+    return null;
+  });
+
+  // Cleanup kiosk payment link cache when leaving Step7 (unmount)
+  useEffect(() => {
+    return () => {
+      localStorage.removeItem('kiosk_payment_link_sent');
+      localStorage.removeItem('pending_order_id');
+    };
+  }, []);
 
   const [error, setError] = useState<string | string[] | null>(null);
+  const [isResending, setIsResending] = useState(false);
+  // Detectar modo kiosco para cambiar texto del botón
+  const isKioskMode = typeof window !== 'undefined' && !!localStorage.getItem("kiosk_client_id");
   const [isLoadingShippingMethod, setIsLoadingShippingMethod] = useState(false);
   // NUEVO: Estado separado para skeleton (solo espera canPickUp) y botón (espera cálculo de envío)
   const [isLoadingCanPickUp, setIsLoadingCanPickUp] = useState(false);
@@ -203,19 +234,49 @@ export default function Step7({ onBack }: Step7Props) {
 
   // Cargar dirección desde localStorage al montar el componente
   useEffect(() => {
-    try {
-      const addressStr = localStorage.getItem('checkout-address');
-      if (addressStr) {
-        const parsed = JSON.parse(addressStr);
-        //         console.log("📍 [Step7 - Init] Dirección cargada desde localStorage:", parsed);
-        //         console.log("📍 [Step7 - Init] UUID de dirección:", parsed.id);
-        setCheckoutAddress(parsed);
-      } else {
+    const loadAddress = async () => {
+      try {
+        const addressStr = localStorage.getItem('checkout-address');
+        if (addressStr) {
+          const parsed = JSON.parse(addressStr);
+          setCheckoutAddress(parsed);
+          return;
+        }
+
+        // Fallback para kiosk: si no hay checkout-address en localStorage,
+        // intentar obtener la dirección predeterminada del cliente kiosk desde el API
+        const kioskClientStr = localStorage.getItem('kiosk_client_id');
+        if (kioskClientStr) {
+          console.warn("⚠️ [Step7 - Init] No hay checkout-address en localStorage, intentando obtener desde API para kiosk...");
+          try {
+            const defaultAddress = await addressesService.getDefaultAddress("ENVIO");
+            if (defaultAddress?.id) {
+              const recoveredAddress = {
+                id: defaultAddress.id,
+                usuario_id: defaultAddress.usuarioId || "",
+                email: "",
+                linea_uno: defaultAddress.direccionFormateada || defaultAddress.lineaUno || "",
+                codigo_dane: defaultAddress.codigo_dane || "",
+                ciudad: defaultAddress.ciudad || "",
+                pais: defaultAddress.pais || "Colombia",
+                esPredeterminada: true,
+              };
+              localStorage.setItem('checkout-address', JSON.stringify(recoveredAddress));
+              setCheckoutAddress(recoveredAddress);
+              console.log("✅ [Step7 - Init] Dirección recuperada desde API para kiosk:", recoveredAddress.id);
+              return;
+            }
+          } catch (apiErr) {
+            console.error("❌ [Step7 - Init] Error al obtener dirección desde API:", apiErr);
+          }
+        }
+
         console.warn("⚠️ [Step7 - Init] No se encontró checkout-address en localStorage");
+      } catch (error) {
+        console.error("❌ [Step7 - Init] Error al cargar checkout-address:", error);
       }
-    } catch (error) {
-      console.error("❌ [Step7 - Init] Error al cargar checkout-address:", error);
-    }
+    };
+    loadAddress();
   }, []);
 
   // Store/Warehouse validation state
@@ -430,13 +491,23 @@ export default function Step7({ onBack }: Step7Props) {
           phone: parsed.phone,
         });
       } else {
-        // Si recibe el cliente, intentamos poblar con sus datos de facturación o usuario
+        // Si recibe el cliente, intentamos poblar con sus datos
         let clientFirstName = "";
         let clientLastName = "";
         let clientEmail = "";
         let clientPhone = "";
 
-        if (billingDataStr) {
+        // Prioridad 1: datos del cliente kiosco (tiene nombre, apellido, email, celular)
+        const kioskClientStr = localStorage.getItem("kiosk_client_id");
+        if (kioskClientStr) {
+          try {
+            const kioskClient = JSON.parse(kioskClientStr);
+            clientFirstName = kioskClient.nombre || "";
+            clientLastName = kioskClient.apellido || "";
+            clientEmail = kioskClient.email || "";
+            clientPhone = kioskClient.celular || "";
+          } catch (e) { console.error("Error parsing kiosk client for recipient", e); }
+        } else if (billingDataStr) {
           try {
             const billing = JSON.parse(billingDataStr);
             // Intentar separar nombre y apellido si vienen juntos
@@ -1579,7 +1650,25 @@ export default function Step7({ onBack }: Step7Props) {
       // });
       // console.log("🔍 [Step7 - Validación] ============================================");
 
-      if (!checkoutAddress?.id) {
+      // Defensive: re-read checkout-address from localStorage in case state is stale
+      let effectiveAddress = checkoutAddress;
+      if (!effectiveAddress?.id) {
+        try {
+          const freshAddressStr = localStorage.getItem('checkout-address');
+          if (freshAddressStr) {
+            const parsed = JSON.parse(freshAddressStr);
+            if (parsed?.id) {
+              console.log("🔄 [Step7 - Validación] Dirección recuperada desde localStorage (state era null):", parsed.id);
+              effectiveAddress = parsed;
+              setCheckoutAddress(parsed);
+            }
+          }
+        } catch {
+          // ignore parse errors
+        }
+      }
+
+      if (!effectiveAddress?.id) {
         console.error("❌ [Step7 - Validación] ERROR: No se encontró el ID de la dirección");
         throw new Error("No se encontró la dirección de envío. Por favor, agrega una dirección antes de continuar.");
       }
@@ -1700,7 +1789,7 @@ export default function Step7({ onBack }: Step7Props) {
             codigo_bodega,
             shippingAmount: String(calculations.shipping),
             userInfo: {
-              direccionId: checkoutAddress?.id || "",
+              direccionId: effectiveAddress?.id || "",
               userId: (() => {
                 const kc = localStorage.getItem('kiosk_client_id');
                 if (kc) { try { const p = JSON.parse(kc); if (p?.userId) return p.userId; } catch { /* ignore */ } }
@@ -1821,7 +1910,7 @@ export default function Step7({ onBack }: Step7Props) {
             metodo_envio,
             codigo_bodega,
             userInfo: {
-              direccionId: checkoutAddress?.id || "",
+              direccionId: effectiveAddress?.id || "",
               userId: (() => {
                 if (kioskClientPse?.userId) return kioskClientPse.userId;
                 return authContext.user?.id || String(loggedUser?.id);
@@ -1832,18 +1921,31 @@ export default function Step7({ onBack }: Step7Props) {
             bankName: paymentData.bankName || "",
           };
 
-          // Kiosk mode: use separate endpoint that sends link via email
+          // Kiosk mode: create pending order and send payment link via email/WhatsApp
           if (kioskClientPse?.email) {
             const kioskRes = await kioskPayWithPse({
               ...psePaymentData,
               kioskCustomerEmail: kioskClientPse.email,
+              kioskCustomerPhone: (() => {
+                const phone = kioskClientPse.celular || kioskClientPse.telefono || kioskClientPse.phone || "";
+                const countryCode = kioskClientPse.codigo_pais || "57";
+                if (!phone) return undefined;
+                return phone.startsWith(countryCode) ? phone : `${countryCode}${phone}`;
+              })(),
+              previousOrderId: kioskPaymentLinkSent?.orderId,
             });
             if ("error" in kioskRes) {
               setError(kioskRes.message);
               throw new Error(kioskRes.message);
             }
-            localStorage.removeItem('kiosk_client_id');
-            setKioskPaymentLinkSent({ email: kioskRes.email });
+            const pseKioskState = {
+              email: kioskRes.email,
+              orderId: kioskRes.orderId,
+              whatsappSent: kioskRes.kioskWhatsappSent,
+              clientData: kioskClientPse,
+            };
+            setKioskPaymentLinkSent(pseKioskState);
+            localStorage.setItem('kiosk_payment_link_sent', JSON.stringify(pseKioskState));
             setIsProcessing(false);
             break;
           }
@@ -1900,7 +2002,7 @@ export default function Step7({ onBack }: Step7Props) {
             metodo_envio,
             codigo_bodega,
             userInfo: {
-              direccionId: checkoutAddress?.id || "",
+              direccionId: effectiveAddress?.id || "",
               userId: (() => {
                 if (kioskClientAddi?.userId) return kioskClientAddi.userId;
                 return authContext.user?.id || String(loggedUser?.id);
@@ -1915,13 +2017,26 @@ export default function Step7({ onBack }: Step7Props) {
             const kioskRes = await kioskPayWithAddi({
               ...addiPaymentData,
               kioskCustomerEmail: kioskClientAddi.email,
+              kioskCustomerPhone: (() => {
+                const phone = kioskClientAddi.celular || kioskClientAddi.telefono || kioskClientAddi.phone || "";
+                const countryCode = kioskClientAddi.codigo_pais || "57";
+                if (!phone) return undefined;
+                return phone.startsWith(countryCode) ? phone : `${countryCode}${phone}`;
+              })(),
+              previousOrderId: kioskPaymentLinkSent?.orderId,
             });
             if ("error" in kioskRes) {
               setError(kioskRes.message);
               throw new Error(kioskRes.message);
             }
-            localStorage.removeItem('kiosk_client_id');
-            setKioskPaymentLinkSent({ email: kioskRes.email });
+            const addiKioskState = {
+              email: kioskRes.email,
+              orderId: kioskRes.orderId,
+              whatsappSent: kioskRes.kioskWhatsappSent,
+              clientData: kioskClientAddi,
+            };
+            setKioskPaymentLinkSent(addiKioskState);
+            localStorage.setItem('kiosk_payment_link_sent', JSON.stringify(addiKioskState));
             setIsProcessing(false);
             break;
           }
@@ -1943,6 +2058,7 @@ export default function Step7({ onBack }: Step7Props) {
     } catch (error) {
       console.error("Error processing payment:", error);
       setIsProcessing(false);
+      throw error; // Re-throw so callers (like resend) can handle it
     }
   };
 
@@ -2013,8 +2129,6 @@ export default function Step7({ onBack }: Step7Props) {
       await processOrder();
     } catch (error) {
       console.error("❌ [STEP7] ERROR en handleConfirmOrder:", error);
-      // Si hay un error, intentar procesar la orden de todas formas
-      await processOrder();
     }
   };
 
@@ -2026,7 +2140,11 @@ export default function Step7({ onBack }: Step7Props) {
 
     // Procesar la orden después de registrarse (sin delay, processOrder maneja isProcessing)
     //     console.log("🔄 [STEP7] Iniciando processOrder después del registro exitoso");
-    await processOrder();
+    try {
+      await processOrder();
+    } catch (error) {
+      console.error("❌ [STEP7] ERROR en handleRegisterSuccess:", error);
+    }
   };
 
   // Callback cuando el usuario cancela el modal
@@ -2037,7 +2155,11 @@ export default function Step7({ onBack }: Step7Props) {
 
     // Procesar la orden como invitado (sin delay, processOrder maneja isProcessing)
     //     console.log("🔄 [STEP7] Procesando orden como invitado");
-    await processOrder();
+    try {
+      await processOrder();
+    } catch (error) {
+      console.error("❌ [STEP7] ERROR en handleModalClose:", error);
+    }
   };
 
   const getPaymentMethodLabel = (method: string) => {
@@ -2066,42 +2188,67 @@ export default function Step7({ onBack }: Step7Props) {
     return cardInfo.availableInstallments.includes(installments);
   };
 
-  // Kiosk payment link sent confirmation screen
-  if (kioskPaymentLinkSent) {
-    return (
-      <div className="min-h-screen w-full flex items-center justify-center bg-gray-50">
-        <div className="max-w-lg w-full mx-4 bg-white rounded-2xl shadow-lg p-8 text-center">
-          <div className="w-20 h-20 bg-blue-100 rounded-full flex items-center justify-center mx-auto mb-6">
-            <svg className="w-10 h-10 text-blue-600" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 8l7.89 5.26a2 2 0 002.22 0L21 8M5 19h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z" />
-            </svg>
-          </div>
-          <h2 className="text-2xl font-bold text-gray-900 mb-3">
-            Enlace de pago enviado
-          </h2>
-          <p className="text-gray-600 mb-2">
-            Hemos enviado un enlace de pago a:
-          </p>
-          <p className="text-lg font-semibold text-blue-600 mb-6">
-            {kioskPaymentLinkSent.email}
-          </p>
-          <p className="text-sm text-gray-500 mb-8">
-            El cliente puede completar el pago desde su correo electrónico.
-            Revisa tu bandeja de entrada y haz clic en el enlace para finalizar la compra.
-          </p>
-          <button
-            onClick={() => {
-              localStorage.removeItem('kiosk_client_id');
-              router.push('/');
-            }}
-            className="w-full bg-blue-600 text-white py-3 px-6 rounded-lg font-semibold hover:bg-blue-700 transition-colors"
-          >
-            Volver al inicio
-          </button>
-        </div>
-      </div>
-    );
-  }
+  // Kiosk: handler to finalize order and go home
+  const handleKioskFinalize = () => {
+    // Clean all checkout localStorage keys
+    localStorage.removeItem('kiosk_client_id');
+    localStorage.removeItem('kiosk_client');
+    localStorage.removeItem('checkout-address');
+    localStorage.removeItem('imagiq_default_address');
+    localStorage.removeItem('imagiq_candidate_stores_cache');
+    localStorage.removeItem('checkout-billing-data');
+    localStorage.removeItem('checkout-envio-imagiq');
+    localStorage.removeItem('checkout-received-by-client');
+    localStorage.removeItem('checkout-zero-interest');
+    localStorage.removeItem('checkout-delivery-method');
+    localStorage.removeItem('checkout-payment-method');
+    localStorage.removeItem('checkout-selected-bank');
+    localStorage.removeItem('checkout-installments');
+    localStorage.removeItem('checkout-card-data');
+    localStorage.removeItem('checkout-saved-card-id');
+    localStorage.removeItem('kiosk_payment_link_sent');
+    localStorage.removeItem('pending_order_id');
+    // Clear the cart
+    clearCart();
+    router.push('/');
+  };
+
+  // Kiosk: handler to resend payment link (calls kiosk endpoint directly)
+  const handleKioskResendLink = async () => {
+    if (isResending || !paymentData) return;
+    setIsResending(true);
+    try {
+      const kioskClient = (() => {
+        try { const kc = localStorage.getItem('kiosk_client_id'); return kc ? JSON.parse(kc) : null; } catch { return null; }
+      })();
+      if (!kioskClient?.email) {
+        toast.error("No se encontraron datos del cliente");
+        return;
+      }
+
+      const kioskPhone = (() => {
+        const phone = kioskClient.celular || kioskClient.telefono || kioskClient.phone || "";
+        const countryCode = kioskClient.codigo_pais || "57";
+        if (!phone) return undefined;
+        return phone.startsWith(countryCode) ? phone : `${countryCode}${phone}`;
+      })();
+
+      // Re-run processOrder which will create a new order and send the link
+      await processOrder();
+
+      // Check if it succeeded (processOrder swallows errors internally)
+      // Show success toast - if processOrder failed, the error state will be set
+      if (!error) {
+        toast.success("Link de pago reenviado exitosamente");
+      } else {
+        toast.error("Error al reenviar el link de pago");
+      }
+    } catch (err) {
+      toast.error("Error al reenviar el link de pago");
+    } finally {
+      setIsResending(false);
+    }
+  };
 
   return (
     <div className="min-h-screen w-full pb-40 md:pb-0">
@@ -2638,6 +2785,51 @@ export default function Step7({ onBack }: Step7Props) {
                     </div>
                   </div>
                 )}
+
+                {/* Detalle de productos del carrito */}
+                <div className="bg-white rounded-lg p-4 border border-gray-300">
+                  <div className="flex items-center gap-3 mb-4">
+                    <div className="w-10 h-10 bg-gray-100 rounded-full flex items-center justify-center">
+                      <Package className="w-5 h-5 text-gray-600" />
+                    </div>
+                    <div>
+                      <h2 className="text-lg font-bold text-gray-900">
+                        Detalle de compra
+                      </h2>
+                      <p className="text-sm text-gray-600">
+                        {products.reduce((acc, p) => acc + p.quantity, 0)} producto{products.reduce((acc, p) => acc + p.quantity, 0) !== 1 ? "s" : ""}
+                      </p>
+                    </div>
+                  </div>
+                  <div className="space-y-3">
+                    {products.map((product) => (
+                      <div key={product.id} className="flex items-center gap-3 p-3 bg-gray-50 rounded-lg">
+                        <div className="relative w-20 h-20 flex-shrink-0 bg-white rounded-lg overflow-hidden border border-gray-200">
+                          {product.image ? (
+                            <Image
+                              src={product.image}
+                              alt={product.name}
+                              fill
+                              className="object-contain p-1"
+                              sizes="80px"
+                            />
+                          ) : (
+                            <div className="w-full h-full flex items-center justify-center">
+                              <Package className="w-6 h-6 text-gray-300" />
+                            </div>
+                          )}
+                        </div>
+                        <div className="flex-1 min-w-0">
+                          <p className="text-sm font-medium text-gray-900 truncate">{product.name}</p>
+                          <p className="text-xs text-gray-500">Cant: {product.quantity}</p>
+                        </div>
+                        <p className="text-sm font-bold text-gray-900 flex-shrink-0">
+                          $ {Number(product.price * product.quantity).toLocaleString()}
+                        </p>
+                      </div>
+                    ))}
+                  </div>
+                </div>
               </>
             )}
           </div>
@@ -2717,12 +2909,13 @@ export default function Step7({ onBack }: Step7Props) {
               </div>
             ) : (
               <Step4OrderSummary
-                isProcessing={isProcessing}
-                onFinishPayment={handleConfirmOrder}
-                onBack={onBack}
-                buttonText="Confirmar y pagar"
+                isProcessing={isProcessing || isResending}
+                onFinishPayment={kioskPaymentLinkSent ? handleKioskResendLink : handleConfirmOrder}
+                onBack={kioskPaymentLinkSent ? handleKioskFinalize : onBack}
+                backText={kioskPaymentLinkSent ? "Finalizar orden" : "Volver"}
+                buttonText={kioskPaymentLinkSent ? (isResending ? "Reenviando..." : "Reenviar link") : (isKioskMode ? "Enviar link de pago" : "Confirmar y pagar")}
                 buttonVariant="green"
-                disabled={isProcessing || isValidatingTradeIn || !tradeInValidation.isValid}
+                disabled={kioskPaymentLinkSent ? isResending : (isProcessing || isResending || isValidatingTradeIn || !tradeInValidation.isValid)}
                 isSticky={true}
                 shippingVerification={shippingVerification}
                 deliveryMethod={shippingData?.type}
@@ -2938,16 +3131,16 @@ export default function Step7({ onBack }: Step7Props) {
                 ? "bg-gray-400 border-gray-300 cursor-not-allowed"
                 : "bg-green-600 border-green-500 hover:bg-green-700 hover:border-green-600 cursor-pointer shadow-lg shadow-green-500/40 hover:shadow-xl hover:shadow-green-500/50"
             }`}
-            onClick={handleConfirmOrder}
-            disabled={isProcessing || isValidatingTradeIn || !tradeInValidation.isValid}
+            onClick={kioskPaymentLinkSent ? handleKioskResendLink : handleConfirmOrder}
+            disabled={isProcessing || isResending || isValidatingTradeIn || !tradeInValidation.isValid}
           >
-            {(isProcessing || isCalculatingShipping || isValidatingTradeIn) && (
+            {(isProcessing || isResending || isCalculatingShipping || isValidatingTradeIn) && (
               <svg className="animate-spin h-5 w-5 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
                 <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
                 <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
               </svg>
             )}
-            <span>{isProcessing || isValidatingTradeIn ? "Procesando..." : "Confirmar y pagar"}</span>
+            <span>{isProcessing || isResending || isValidatingTradeIn ? "Procesando..." : (kioskPaymentLinkSent ? "Reenviar link" : (isKioskMode ? "Enviar link de pago" : "Confirmar y pagar"))}</span>
           </button>
         </div>
       </div>

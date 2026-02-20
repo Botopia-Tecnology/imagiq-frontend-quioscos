@@ -51,6 +51,7 @@ interface Step4OrderSummaryProps {
   readonly buttonVariant?: "default" | "green"; // Variante de color del botón
   readonly hideButton?: boolean; // Ocultar el botón principal (útil para pasos intermedios como OTP)
   readonly shouldAnimateButton?: boolean; // Animación bounce cuando el botón se habilita
+  readonly backText?: string; // Texto del botón Volver (default: "Volver")
 }
 
 export default function Step4OrderSummary({
@@ -73,6 +74,7 @@ export default function Step4OrderSummary({
   buttonVariant = "default",
   hideButton = false,
   shouldAnimateButton = false,
+  backText = "Volver",
 }: Step4OrderSummaryProps) {
   const router = useRouter();
   const {
@@ -1248,7 +1250,7 @@ export default function Step4OrderSummary({
             className="flex-1 bg-gray-200 text-gray-800 font-semibold py-3 rounded-lg hover:bg-gray-300 focus-visible:ring-2 focus-visible:ring-blue-600 transition cursor-pointer"
             onClick={onBack}
           >
-            Volver
+            {backText}
           </button>
         )}
 

@@ -1,7 +1,7 @@
 "use client";
 
 import React, { useState, useEffect } from "react";
-import { apiPost, apiGet } from "@/lib/api-client";
+import { apiPost } from "@/lib/api-client";
 import { Card, CardHeader, CardTitle, CardDescription, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -22,16 +22,12 @@ interface KioskClientFormProps {
 interface CheckUserResponse {
   exists: boolean;
   userId: string | null;
-}
-
-interface UserProfile {
-  id: string;
-  nombre: string;
-  apellido: string;
-  email: string;
-  telefono: string;
-  numero_documento: string;
-  tipo_documento: string;
+  nombre?: string;
+  apellido?: string;
+  telefono?: string;
+  numero_documento?: string;
+  tipo_documento?: string;
+  codigo_pais?: string;
 }
 
 interface CreateGuestResponse {
@@ -177,22 +173,22 @@ export default function KioskClientForm({ onClientReady }: KioskClientFormProps)
       });
 
       if (result.exists && result.userId) {
-        // User exists, load their profile
+        // User exists, populate form with data from check-user response
         setExistingUserId(result.userId);
-        try {
-          const profile = await apiGet<UserProfile>(`/api/auth/profile/${result.userId}`);
-          setForm({
-            nombre: profile.nombre || "",
-            apellido: profile.apellido || "",
-            celular: profile.telefono || "",
-            tipo_documento: profile.tipo_documento || "CC",
-            cedula: profile.numero_documento || "",
-          });
-          setStep("found");
-        } catch {
-          // If profile fetch fails, still allow continuing with just the userId
-          setStep("found");
+        setForm({
+          nombre: result.nombre || "",
+          apellido: result.apellido || "",
+          celular: result.telefono || "",
+          tipo_documento: result.tipo_documento || "CC",
+          cedula: result.numero_documento || "",
+        });
+        if (result.codigo_pais) {
+          const code = result.codigo_pais.startsWith("+") ? result.codigo_pais : `+${result.codigo_pais}`;
+          if (countryCodes.some(c => c.code === code)) {
+            setPrefijo(code);
+          }
         }
+        setStep("found");
       } else {
         // New client
         setExistingUserId(null);

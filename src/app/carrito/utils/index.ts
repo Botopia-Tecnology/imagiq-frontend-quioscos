@@ -2,7 +2,12 @@
 import { AddiPaymentData, CardPaymentData, PsePaymentData, CheckZeroInterestRequest, CheckZeroInterestResponse } from "../types";
 import { apiPost, apiGet } from "@/lib/api-client";
 
-export type KioskEmailSentResponse = { kioskEmailSent: true; email: string };
+export type KioskEmailSentResponse = {
+  kioskEmailSent: boolean;
+  kioskWhatsappSent: boolean;
+  email: string;
+  orderId: string;
+};
 
 export async function payWithAddi(
   props: AddiPaymentData
@@ -75,7 +80,7 @@ export async function payWithPse(props: PsePaymentData): Promise<{ redirectUrl: 
  * Kiosk mode: Creates PSE payment and sends bank redirect link to customer's email
  */
 export async function kioskPayWithPse(
-  props: PsePaymentData & { kioskCustomerEmail: string }
+  props: PsePaymentData & { kioskCustomerEmail: string; kioskCustomerPhone?: string; previousOrderId?: string }
 ): Promise<KioskEmailSentResponse | { error: string; message: string }> {
   try {
     const data = await apiPost<KioskEmailSentResponse>('/api/payments/kiosk/pse', props);
@@ -93,7 +98,7 @@ export async function kioskPayWithPse(
  * Kiosk mode: Creates Addi application and sends redirect link to customer's email
  */
 export async function kioskPayWithAddi(
-  props: AddiPaymentData & { kioskCustomerEmail: string }
+  props: AddiPaymentData & { kioskCustomerEmail: string; kioskCustomerPhone?: string; previousOrderId?: string }
 ): Promise<KioskEmailSentResponse | { error: string; message: string }> {
   try {
     const data = await apiPost<KioskEmailSentResponse>('/api/payments/kiosk/addi', props);

@@ -39,6 +39,14 @@ interface BillingData {
   nombreRepresentante?: string;
 }
 
+// Normalizar tipo de documento: "CC" -> "C.C.", "CE" -> "C.E.", etc.
+function normalizeDocType(raw: string | undefined): string {
+  if (!raw) return "C.C.";
+  const upper = raw.toUpperCase().replace(/\./g, "").trim();
+  const map: Record<string, string> = { CC: "C.C.", CE: "C.E.", NIT: "NIT", PASAPORTE: "PASAPORTE" };
+  return map[upper] || raw;
+}
+
 export default function Step6({ onBack, onContinue }: Step6Props) {
   const router = useRouter();
   const { user } = useAuthContext();
@@ -259,27 +267,48 @@ export default function Step6({ onBack, onContinue }: Step6Props) {
         console.error("Error parsing billing data:", error);
       }
     } else {
-      // Intentar obtener usuario desde localStorage si user del contexto es null (caso invitado)
-      const userToCheck = user || (() => {
+      // En modo kiosk, priorizar datos del cliente kiosk sobre la cuenta de la tienda
+      const kioskClient = (() => {
         try {
-          const userInfo = localStorage.getItem("imagiq_user");
-          return userInfo ? JSON.parse(userInfo) : null;
-        } catch {
-          return null;
-        }
+          const kc = localStorage.getItem("kiosk_client_id");
+          return kc ? JSON.parse(kc) : null;
+        } catch { return null; }
       })();
 
-      if (userToCheck) {
-        // Si no hay datos guardados, auto-completar con datos del usuario (o invitado)
+      if (kioskClient) {
+        // Auto-completar con datos del cliente kiosk
         setBillingData({
           type: "natural",
-          nombre: `${userToCheck.nombre || ""} ${userToCheck.apellido || ""}`.trim(),
-          documento: userToCheck.numero_documento || "",
-          tipoDocumento: userToCheck.tipo_documento || "C.C.",
-          email: userToCheck.email || "",
-          telefono: userToCheck.telefono || userToCheck.celular || "",
+          nombre: `${kioskClient.nombre || ""} ${kioskClient.apellido || ""}`.trim(),
+          documento: kioskClient.cedula || kioskClient.numero_documento || "",
+          tipoDocumento: normalizeDocType(kioskClient.tipo_documento),
+          email: kioskClient.email || "",
+          telefono: kioskClient.celular || kioskClient.telefono || "",
           direccion: null,
         });
+      } else {
+        // Intentar obtener usuario desde localStorage si user del contexto es null (caso invitado)
+        const userToCheck = user || (() => {
+          try {
+            const userInfo = localStorage.getItem("imagiq_user");
+            return userInfo ? JSON.parse(userInfo) : null;
+          } catch {
+            return null;
+          }
+        })();
+
+        if (userToCheck) {
+          // Si no hay datos guardados, auto-completar con datos del usuario (o invitado)
+          setBillingData({
+            type: "natural",
+            nombre: `${userToCheck.nombre || ""} ${userToCheck.apellido || ""}`.trim(),
+            documento: userToCheck.numero_documento || "",
+            tipoDocumento: userToCheck.tipo_documento || "C.C.",
+            email: userToCheck.email || "",
+            telefono: userToCheck.telefono || userToCheck.celular || "",
+            direccion: null,
+          });
+        }
       }
     }
   }, [user]);
@@ -298,11 +327,24 @@ export default function Step6({ onBack, onContinue }: Step6Props) {
           const parsed = JSON.parse(shippingAddress);
           
           setBillingData((prev) => {
-            // Intentar obtener datos del usuario para autocompletar campos vacíos
+            // En modo kiosk, priorizar datos del cliente kiosk
             let userData = null;
             try {
-              const userStr = localStorage.getItem("imagiq_user");
-              if (userStr) userData = JSON.parse(userStr);
+              const kioskStr = localStorage.getItem("kiosk_client_id");
+              if (kioskStr) {
+                const kc = JSON.parse(kioskStr);
+                userData = {
+                  nombre: kc.nombre || "",
+                  apellido: kc.apellido || "",
+                  numero_documento: kc.cedula || kc.numero_documento || "",
+                  tipo_documento: normalizeDocType(kc.tipo_documento),
+                  email: kc.email || "",
+                  telefono: kc.celular || kc.telefono || "",
+                };
+              } else {
+                const userStr = localStorage.getItem("imagiq_user");
+                if (userStr) userData = JSON.parse(userStr);
+              }
             } catch (e) { console.error(e); }
 
             return {
@@ -312,7 +354,7 @@ export default function Step6({ onBack, onContinue }: Step6Props) {
               nombre: prev.nombre || (userData ? `${userData.nombre || ""} ${userData.apellido || ""}`.trim() : prev.nombre),
               documento: prev.documento || (userData?.numero_documento || prev.documento),
               tipoDocumento: prev.tipoDocumento || (userData?.tipo_documento || prev.tipoDocumento),
-              email: prev.email || (userData?.email || parsed.email || prev.email), // Usar email de dirección como fallback
+              email: prev.email || (userData?.email || parsed.email || prev.email),
               telefono: prev.telefono || (userData?.telefono || userData?.celular || prev.telefono),
             };
           });
