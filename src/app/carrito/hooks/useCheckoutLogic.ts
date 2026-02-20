@@ -382,6 +382,9 @@ export function useCheckoutLogic() {
     let valid = true;
     setError("");
 
+    // Detectar si estamos en modo kiosco
+    const isKioskMode = typeof window !== 'undefined' && !!localStorage.getItem("kiosk_client_id");
+
     // Validar método de pago
     if (!paymentMethod) {
       setError("Selecciona un método de pago");
@@ -399,8 +402,8 @@ export function useCheckoutLogic() {
       }
     }
 
-    // Validar banco si se seleccionó PSE
-    if (paymentMethod === "pse" && !selectedBank) {
+    // Validar banco si se seleccionó PSE (kiosk mode skips bank - customer selects later)
+    if (paymentMethod === "pse" && !selectedBank && !isKioskMode) {
       setError("Debes seleccionar un banco para pagar con PSE");
       valid = false;
     }
@@ -446,6 +449,9 @@ export function useCheckoutLogic() {
     setBillingError("");
     setError("");
 
+    // Detectar si estamos en modo kiosco
+    const isKioskMode = typeof window !== 'undefined' && !!localStorage.getItem("kiosk_client_id");
+
     // Validar método de pago
     if (!paymentMethod) {
       setError("Selecciona un método de pago");
@@ -463,8 +469,8 @@ export function useCheckoutLogic() {
       }
     }
 
-    // Validar banco si se seleccionó PSE
-    if (paymentMethod === "pse" && !selectedBank) {
+    // Validar banco si se seleccionó PSE (kiosk mode skips bank - customer selects later)
+    if (paymentMethod === "pse" && !selectedBank && !isKioskMode) {
       setError("Debes seleccionar un banco para pagar con PSE");
       valid = false;
     }

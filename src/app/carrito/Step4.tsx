@@ -225,10 +225,10 @@ export default function Step4({
     };
   }, [router]);
 
-  // Obtener el rol del usuario
+  // Obtener el rol del usuario (compatibilidad: backend usa 'rol', frontend puede usar 'role')
   const userRole = React.useMemo(() => {
-    return authContext.user?.rol || loggedUser?.rol || null;
-  }, [authContext.user?.rol, loggedUser?.rol]);
+    return (authContext.user as any)?.rol ?? (authContext.user as any)?.role ?? loggedUser?.rol ?? loggedUser?.role ?? null;
+  }, [authContext.user, loggedUser]);
 
   // Roles 2 y 4 pueden guardar tarjetas (no ven formulario de tarjeta nueva)
   const canSaveCards = userRole === 2 || userRole === 4;
@@ -269,8 +269,8 @@ export default function Step4({
       }
     }
 
-    // Si es PSE, debe tener un banco seleccionado
-    if (paymentMethod === "pse" && !selectedBank) {
+    // Si es PSE, debe tener un banco seleccionado (excepto en kiosk mode)
+    if (paymentMethod === "pse" && !selectedBank && userRole !== 5) {
       // console.log('🔴 [Step4] isPaymentMethodValid: false - PSE but no bank');
       return false;
     }
@@ -278,7 +278,7 @@ export default function Step4({
     // Si es Addi, siempre está válido (no requiere más datos)
     // console.log('🟢 [Step4] isPaymentMethodValid: true');
     return true;
-  }, [paymentMethod, selectedCardId, selectedBank, useNewCard, isCardFormValid, canSaveCards]);
+  }, [paymentMethod, selectedCardId, selectedBank, useNewCard, isCardFormValid, canSaveCards, userRole]);
 
   const handleContinueToNextStep = async (e: React.FormEvent) => {
     e.preventDefault(); // Prevenir recarga inmediatamente

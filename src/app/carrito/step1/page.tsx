@@ -41,6 +41,12 @@ export default function Step1Page() {
       localStorage.removeItem('checkout-address');
       localStorage.removeItem('imagiq_default_address');
       localStorage.removeItem('imagiq_candidate_stores_cache');
+      localStorage.removeItem('checkout-billing-data');
+      localStorage.removeItem('checkout-envio-imagiq');
+      localStorage.removeItem('checkout-received-by-client');
+      localStorage.removeItem('checkout-zero-interest');
+      localStorage.removeItem('checkout-delivery-method');
+      localStorage.removeItem('checkout-payment-method');
       console.log("🏪 [STEP1] Usuario kiosk (rol 5), limpiando datos de cliente anterior y yendo a step2");
       router.push("/carrito/step2");
       return;
