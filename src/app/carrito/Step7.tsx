@@ -33,6 +33,7 @@ import {
 import { CheckZeroInterestResponse, BeneficiosDTO, DetalleDispositivoRetoma } from "./types";
 import { apiPost } from "@/lib/api-client";
 import { safeGetLocalStorage } from "@/lib/localStorage";
+import { addressesService } from "@/services/addresses.service";
 import { productEndpoints, deliveryEndpoints, tradeInEndpoints } from "@/lib/api";
 import useSecureStorage from "@/hooks/useSecureStorage";
 import { User } from "@/types/user";
@@ -154,13 +155,31 @@ export default function Step7({ onBack }: Step7Props) {
     }, 0);
   }, [products]);
 
-  // Kiosk payment link sent state
+  // Kiosk payment link sent state - restore from localStorage on mount
   const [kioskPaymentLinkSent, setKioskPaymentLinkSent] = useState<{
     email: string;
     orderId?: string;
     whatsappSent?: boolean;
     clientData?: Record<string, any>;
-  } | null>(null);
+  } | null>(() => {
+    if (typeof window === 'undefined') return null;
+    try {
+      const cached = localStorage.getItem('kiosk_payment_link_sent');
+      if (cached) {
+        const parsed = JSON.parse(cached);
+        if (parsed?.orderId) return parsed;
+      }
+    } catch { /* ignore */ }
+    return null;
+  });
+
+  // Cleanup kiosk payment link cache when leaving Step7 (unmount)
+  useEffect(() => {
+    return () => {
+      localStorage.removeItem('kiosk_payment_link_sent');
+      localStorage.removeItem('pending_order_id');
+    };
+  }, []);
 
   const [error, setError] = useState<string | string[] | null>(null);
   const [isResending, setIsResending] = useState(false);
@@ -215,19 +234,49 @@ export default function Step7({ onBack }: Step7Props) {
 
   // Cargar dirección desde localStorage al montar el componente
   useEffect(() => {
-    try {
-      const addressStr = localStorage.getItem('checkout-address');
-      if (addressStr) {
-        const parsed = JSON.parse(addressStr);
-        //         console.log("📍 [Step7 - Init] Dirección cargada desde localStorage:", parsed);
-        //         console.log("📍 [Step7 - Init] UUID de dirección:", parsed.id);
-        setCheckoutAddress(parsed);
-      } else {
+    const loadAddress = async () => {
+      try {
+        const addressStr = localStorage.getItem('checkout-address');
+        if (addressStr) {
+          const parsed = JSON.parse(addressStr);
+          setCheckoutAddress(parsed);
+          return;
+        }
+
+        // Fallback para kiosk: si no hay checkout-address en localStorage,
+        // intentar obtener la dirección predeterminada del cliente kiosk desde el API
+        const kioskClientStr = localStorage.getItem('kiosk_client_id');
+        if (kioskClientStr) {
+          console.warn("⚠️ [Step7 - Init] No hay checkout-address en localStorage, intentando obtener desde API para kiosk...");
+          try {
+            const defaultAddress = await addressesService.getDefaultAddress("ENVIO");
+            if (defaultAddress?.id) {
+              const recoveredAddress = {
+                id: defaultAddress.id,
+                usuario_id: defaultAddress.usuarioId || "",
+                email: "",
+                linea_uno: defaultAddress.direccionFormateada || defaultAddress.lineaUno || "",
+                codigo_dane: defaultAddress.codigo_dane || "",
+                ciudad: defaultAddress.ciudad || "",
+                pais: defaultAddress.pais || "Colombia",
+                esPredeterminada: true,
+              };
+              localStorage.setItem('checkout-address', JSON.stringify(recoveredAddress));
+              setCheckoutAddress(recoveredAddress);
+              console.log("✅ [Step7 - Init] Dirección recuperada desde API para kiosk:", recoveredAddress.id);
+              return;
+            }
+          } catch (apiErr) {
+            console.error("❌ [Step7 - Init] Error al obtener dirección desde API:", apiErr);
+          }
+        }
+
         console.warn("⚠️ [Step7 - Init] No se encontró checkout-address en localStorage");
+      } catch (error) {
+        console.error("❌ [Step7 - Init] Error al cargar checkout-address:", error);
       }
-    } catch (error) {
-      console.error("❌ [Step7 - Init] Error al cargar checkout-address:", error);
-    }
+    };
+    loadAddress();
   }, []);
 
   // Store/Warehouse validation state
@@ -1601,7 +1650,25 @@ export default function Step7({ onBack }: Step7Props) {
       // });
       // console.log("🔍 [Step7 - Validación] ============================================");
 
-      if (!checkoutAddress?.id) {
+      // Defensive: re-read checkout-address from localStorage in case state is stale
+      let effectiveAddress = checkoutAddress;
+      if (!effectiveAddress?.id) {
+        try {
+          const freshAddressStr = localStorage.getItem('checkout-address');
+          if (freshAddressStr) {
+            const parsed = JSON.parse(freshAddressStr);
+            if (parsed?.id) {
+              console.log("🔄 [Step7 - Validación] Dirección recuperada desde localStorage (state era null):", parsed.id);
+              effectiveAddress = parsed;
+              setCheckoutAddress(parsed);
+            }
+          }
+        } catch {
+          // ignore parse errors
+        }
+      }
+
+      if (!effectiveAddress?.id) {
         console.error("❌ [Step7 - Validación] ERROR: No se encontró el ID de la dirección");
         throw new Error("No se encontró la dirección de envío. Por favor, agrega una dirección antes de continuar.");
       }
@@ -1722,7 +1789,7 @@ export default function Step7({ onBack }: Step7Props) {
             codigo_bodega,
             shippingAmount: String(calculations.shipping),
             userInfo: {
-              direccionId: checkoutAddress?.id || "",
+              direccionId: effectiveAddress?.id || "",
               userId: (() => {
                 const kc = localStorage.getItem('kiosk_client_id');
                 if (kc) { try { const p = JSON.parse(kc); if (p?.userId) return p.userId; } catch { /* ignore */ } }
@@ -1843,7 +1910,7 @@ export default function Step7({ onBack }: Step7Props) {
             metodo_envio,
             codigo_bodega,
             userInfo: {
-              direccionId: checkoutAddress?.id || "",
+              direccionId: effectiveAddress?.id || "",
               userId: (() => {
                 if (kioskClientPse?.userId) return kioskClientPse.userId;
                 return authContext.user?.id || String(loggedUser?.id);
@@ -1871,12 +1938,14 @@ export default function Step7({ onBack }: Step7Props) {
               setError(kioskRes.message);
               throw new Error(kioskRes.message);
             }
-            setKioskPaymentLinkSent({
+            const pseKioskState = {
               email: kioskRes.email,
               orderId: kioskRes.orderId,
               whatsappSent: kioskRes.kioskWhatsappSent,
               clientData: kioskClientPse,
-            });
+            };
+            setKioskPaymentLinkSent(pseKioskState);
+            localStorage.setItem('kiosk_payment_link_sent', JSON.stringify(pseKioskState));
             setIsProcessing(false);
             break;
           }
@@ -1933,7 +2002,7 @@ export default function Step7({ onBack }: Step7Props) {
             metodo_envio,
             codigo_bodega,
             userInfo: {
-              direccionId: checkoutAddress?.id || "",
+              direccionId: effectiveAddress?.id || "",
               userId: (() => {
                 if (kioskClientAddi?.userId) return kioskClientAddi.userId;
                 return authContext.user?.id || String(loggedUser?.id);
@@ -1960,12 +2029,14 @@ export default function Step7({ onBack }: Step7Props) {
               setError(kioskRes.message);
               throw new Error(kioskRes.message);
             }
-            setKioskPaymentLinkSent({
+            const addiKioskState = {
               email: kioskRes.email,
               orderId: kioskRes.orderId,
               whatsappSent: kioskRes.kioskWhatsappSent,
               clientData: kioskClientAddi,
-            });
+            };
+            setKioskPaymentLinkSent(addiKioskState);
+            localStorage.setItem('kiosk_payment_link_sent', JSON.stringify(addiKioskState));
             setIsProcessing(false);
             break;
           }
@@ -2135,6 +2206,8 @@ export default function Step7({ onBack }: Step7Props) {
     localStorage.removeItem('checkout-installments');
     localStorage.removeItem('checkout-card-data');
     localStorage.removeItem('checkout-saved-card-id');
+    localStorage.removeItem('kiosk_payment_link_sent');
+    localStorage.removeItem('pending_order_id');
     // Clear the cart
     clearCart();
     router.push('/');
@@ -2842,7 +2915,7 @@ export default function Step7({ onBack }: Step7Props) {
                 backText={kioskPaymentLinkSent ? "Finalizar orden" : "Volver"}
                 buttonText={kioskPaymentLinkSent ? (isResending ? "Reenviando..." : "Reenviar link") : (isKioskMode ? "Enviar link de pago" : "Confirmar y pagar")}
                 buttonVariant="green"
-                disabled={isProcessing || isResending || isValidatingTradeIn || !tradeInValidation.isValid}
+                disabled={kioskPaymentLinkSent ? isResending : (isProcessing || isResending || isValidatingTradeIn || !tradeInValidation.isValid)}
                 isSticky={true}
                 shippingVerification={shippingVerification}
                 deliveryMethod={shippingData?.type}

@@ -235,6 +235,7 @@ export function clearAllUserData(): void {
     // Limpiar otros datos específicos del usuario
     localStorage.removeItem('checkout-delivery-method');
     localStorage.removeItem('checkout-document');
+    localStorage.removeItem('kiosk_payment_link_sent');
     // console.log('🗑️ [clearAllUserData] Datos de checkout limpiados');
 
     // console.log('✅ [clearAllUserData] Logout completo - TODOS los datos limpiados');

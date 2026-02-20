@@ -1133,6 +1133,49 @@ export default function Step3({
       return;
     }
 
+    // CRÍTICO: Garantizar que checkout-address esté en localStorage antes de navegar
+    // El estado React (address) puede existir pero localStorage puede estar vacío
+    if (address?.id && globalThis.window !== undefined) {
+      const existingAddressStr = globalThis.window.localStorage.getItem('checkout-address');
+      let needsSave = !existingAddressStr;
+      if (existingAddressStr) {
+        try {
+          const existing = JSON.parse(existingAddressStr);
+          needsSave = !existing?.id;
+        } catch {
+          needsSave = true;
+        }
+      }
+      if (needsSave) {
+        console.log('🔄 [Step3] handleContinue: checkout-address no estaba en localStorage, guardando...');
+        const checkoutAddr = {
+          id: address.id,
+          usuario_id: address.usuarioId || "",
+          email: "",
+          linea_uno: address.direccionFormateada || address.lineaUno || "",
+          direccionFormateada: address.direccionFormateada || "",
+          lineaUno: address.lineaUno || "",
+          codigo_dane: address.codigo_dane || "",
+          ciudad: address.ciudad || "",
+          pais: address.pais || "Colombia",
+          esPredeterminada: true,
+          localidad: address.localidad || "",
+          barrio: address.barrio || "",
+          complemento: address.complemento || "",
+          instruccionesEntrega: address.instruccionesEntrega || "",
+          tipoDireccion: address.tipoDireccion || "",
+          nombreDireccion: address.nombreDireccion || "",
+          googleUrl: address.googleUrl || "",
+          googlePlaceId: address.googlePlaceId || "",
+          latitud: address.latitud || 0,
+          longitud: address.longitud || 0,
+        };
+        globalThis.window.localStorage.setItem('checkout-address', JSON.stringify(checkoutAddr));
+        globalThis.window.localStorage.setItem('imagiq_default_address', JSON.stringify(checkoutAddr));
+        console.log('✅ [Step3] handleContinue: checkout-address guardado en localStorage:', checkoutAddr.id);
+      }
+    }
+
     // Validar Trade-In antes de continuar
     const validation = validateTradeInProducts(products);
     if (!validation.isValid) {
