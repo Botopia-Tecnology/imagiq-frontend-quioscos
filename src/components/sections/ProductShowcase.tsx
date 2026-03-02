@@ -240,6 +240,7 @@ export default function ProductShowcase({ initialProducts }: ProductShowcaseProp
             <ProductCard
               key={product.id}
               {...product}
+              forceNuevo
               isFavorite={isFavorite(product.id)}
               onToggleFavorite={handleToggleFavorite}
             />
@@ -256,6 +257,7 @@ export default function ProductShowcase({ initialProducts }: ProductShowcaseProp
               >
                 <ProductCard
                   {...product}
+                  forceNuevo
                   isFavorite={isFavorite(product.id)}
                   onToggleFavorite={handleToggleFavorite}
                 />

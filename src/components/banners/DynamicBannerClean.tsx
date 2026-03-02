@@ -532,7 +532,7 @@ export default function DynamicBannerClean({
 
   const content = (
     <div className={`relative w-full overflow-hidden ${fullBleedMobile ? '-mt-[64px] md:mt-0 md:max-w-[1440px] md:mx-auto' : 'max-w-[1440px] mx-auto'} ${className}`}>
-      <div className={`relative w-full min-h-[700px] md:min-h-[500px] lg:min-h-[800px] overflow-hidden ${fullBleedMobile ? 'md:rounded-lg' : 'rounded-lg'}`}>
+      <div className={`relative w-full min-h-[580px] md:min-h-[500px] lg:min-h-[800px] overflow-hidden ${fullBleedMobile ? 'md:rounded-lg' : 'rounded-lg'}`}>
         {showOverlay && <div className="absolute inset-0 bg-black/30 z-10" />}
 
         {/* Todos los banners en posición absoluta con transición fade + slide */}

@@ -7,11 +7,8 @@ import { safeGetLocalStorage } from "@/lib/localStorage";
 import { apiPost } from "@/lib/api-client";
 import {
   Store, MapPin, Clock, Phone, Mail, Hash,
-  Eye, EyeOff, Check, X, Lock, Loader2,
 } from "lucide-react";
 import { useAuthContext } from "@/features/auth/context";
-import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
 import { Button } from "@/components/ui/button";
 
 interface KioskStoreData {
@@ -89,35 +86,12 @@ function StoreMap({ lat, lng, title }: { lat: number; lng: number; title: string
   );
 }
 
-function getPasswordChecks(password: string) {
-  return [
-    { label: "Mínimo 8 caracteres", valid: password.length >= 8 },
-    { label: "Una mayúscula", valid: /[A-Z]/.test(password) },
-    { label: "Una minúscula", valid: /[a-z]/.test(password) },
-    { label: "Un número", valid: /\d/.test(password) },
-  ];
-}
-
 function KioskProfilePage() {
   const router = useRouter();
   const { logout } = useAuthContext();
   const [storeData, setStoreData] = useState<KioskStoreData | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
-
-  // Password change
-  const [currentPassword, setCurrentPassword] = useState("");
-  const [showCurrentPw, setShowCurrentPw] = useState(false);
-  const [newPassword, setNewPassword] = useState("");
-  const [confirmNewPassword, setConfirmNewPassword] = useState("");
-  const [showNewPw, setShowNewPw] = useState(false);
-  const [showConfirmPw, setShowConfirmPw] = useState(false);
-  const [pwLoading, setPwLoading] = useState(false);
-  const [pwMessage, setPwMessage] = useState("");
-  const [pwError, setPwError] = useState("");
-
-  const passwordChecks = getPasswordChecks(newPassword);
-  const allChecksValid = passwordChecks.every((c) => c.valid);
 
   useEffect(() => {
     const fetchStoreData = async () => {
@@ -136,42 +110,6 @@ function KioskProfilePage() {
     };
     fetchStoreData();
   }, []);
-
-  const handleChangePassword = async () => {
-    setPwError("");
-    setPwMessage("");
-
-    if (!allChecksValid) {
-      setPwError("La contraseña no cumple con todos los requisitos");
-      return;
-    }
-    if (newPassword !== confirmNewPassword) {
-      setPwError("Las contraseñas no coinciden");
-      return;
-    }
-
-    if (!currentPassword) {
-      setPwError("Ingresa tu contraseña actual");
-      return;
-    }
-
-    setPwLoading(true);
-    try {
-      await apiPost<{ message: string }>("/api/auth/kiosk/change-password", {
-        currentPassword,
-        newPassword,
-      });
-      setPwMessage("Contraseña actualizada correctamente");
-      setCurrentPassword("");
-      setNewPassword("");
-      setConfirmNewPassword("");
-      setTimeout(() => setPwMessage(""), 4000);
-    } catch (err) {
-      setPwError(err instanceof Error ? err.message : "Error al cambiar la contraseña");
-    } finally {
-      setPwLoading(false);
-    }
-  };
 
   const hasCoordinates =
     storeData?.latitud &&
@@ -227,9 +165,7 @@ function KioskProfilePage() {
         </div>
       </div>
 
-      <div className="max-w-6xl mx-auto px-6 py-8">
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-          {/* LEFT: Store info */}
+      <div className="max-w-3xl mx-auto px-6 py-8">
           <div className="bg-white rounded-2xl shadow-sm border border-gray-100 p-6">
             <h2 className="font-semibold text-gray-900 mb-5">Información de la tienda</h2>
 
@@ -303,133 +239,6 @@ function KioskProfilePage() {
               )}
             </div>
           </div>
-
-          {/* RIGHT: Change password */}
-          <div className="bg-white rounded-2xl shadow-sm border border-gray-100 p-6">
-            <div className="flex items-center gap-3 mb-5">
-              <div className="flex items-center justify-center w-10 h-10 bg-gray-100 rounded-lg">
-                <Lock className="h-5 w-5 text-gray-600" />
-              </div>
-              <div>
-                <h2 className="font-semibold text-gray-900">Cambiar contraseña</h2>
-                <p className="text-sm text-gray-500">Ingresa una nueva contraseña para tu cuenta</p>
-              </div>
-            </div>
-
-            <div className="space-y-4">
-              <div className="space-y-2">
-                <Label htmlFor="currentPassword">Contraseña actual</Label>
-                <div className="relative">
-                  <Input
-                    id="currentPassword"
-                    type={showCurrentPw ? "text" : "password"}
-                    value={currentPassword}
-                    onChange={(e) => { setCurrentPassword(e.target.value); setPwError(""); }}
-                    placeholder="Ingresa tu contraseña actual"
-                  />
-                  <button
-                    type="button"
-                    onClick={() => setShowCurrentPw(!showCurrentPw)}
-                    className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600"
-                  >
-                    {showCurrentPw ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
-                  </button>
-                </div>
-              </div>
-
-              <div className="space-y-2">
-                <Label htmlFor="newPassword">Nueva contraseña</Label>
-                <div className="relative">
-                  <Input
-                    id="newPassword"
-                    type={showNewPw ? "text" : "password"}
-                    value={newPassword}
-                    onChange={(e) => { setNewPassword(e.target.value); setPwError(""); }}
-                    placeholder="Ingresa tu nueva contraseña"
-                  />
-                  <button
-                    type="button"
-                    onClick={() => setShowNewPw(!showNewPw)}
-                    className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600"
-                  >
-                    {showNewPw ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
-                  </button>
-                </div>
-                {newPassword.length > 0 && (
-                  <div className="grid grid-cols-2 gap-x-3 gap-y-1 mt-1">
-                    {passwordChecks.map((check) => (
-                      <div key={check.label} className="flex items-center gap-1.5 text-xs">
-                        {check.valid ? (
-                          <Check className="h-3.5 w-3.5 text-green-500 shrink-0" />
-                        ) : (
-                          <X className="h-3.5 w-3.5 text-gray-400 shrink-0" />
-                        )}
-                        <span className={check.valid ? "text-green-600" : "text-gray-500"}>
-                          {check.label}
-                        </span>
-                      </div>
-                    ))}
-                  </div>
-                )}
-              </div>
-
-              <div className="space-y-2">
-                <Label htmlFor="confirmNewPassword">Confirmar contraseña</Label>
-                <div className="relative">
-                  <Input
-                    id="confirmNewPassword"
-                    type={showConfirmPw ? "text" : "password"}
-                    value={confirmNewPassword}
-                    onChange={(e) => { setConfirmNewPassword(e.target.value); setPwError(""); }}
-                    placeholder="Repite tu nueva contraseña"
-                    onKeyDown={(e) => e.key === "Enter" && handleChangePassword()}
-                  />
-                  <button
-                    type="button"
-                    onClick={() => setShowConfirmPw(!showConfirmPw)}
-                    className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600"
-                  >
-                    {showConfirmPw ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
-                  </button>
-                </div>
-                {confirmNewPassword.length > 0 && newPassword !== confirmNewPassword && (
-                  <p className="text-xs text-red-500 flex items-center gap-1">
-                    <X className="h-3.5 w-3.5 shrink-0" />
-                    Las contraseñas no coinciden
-                  </p>
-                )}
-              </div>
-
-              <Button
-                onClick={handleChangePassword}
-                disabled={pwLoading || !currentPassword || !allChecksValid || newPassword !== confirmNewPassword}
-                className="w-full bg-black text-white hover:bg-gray-800"
-              >
-                {pwLoading ? (
-                  <>
-                    <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                    Actualizando...
-                  </>
-                ) : (
-                  "Actualizar contraseña"
-                )}
-              </Button>
-
-              {pwMessage && (
-                <div className="bg-green-50 border border-green-200 text-green-700 px-4 py-3 rounded-lg text-sm flex items-center gap-2">
-                  <Check className="h-4 w-4" />
-                  {pwMessage}
-                </div>
-              )}
-
-              {pwError && (
-                <div className="text-sm text-red-600 bg-red-50 py-2 px-4 rounded-lg">
-                  {pwError}
-                </div>
-              )}
-            </div>
-          </div>
-        </div>
       </div>
     </div>
   );

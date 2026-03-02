@@ -994,6 +994,15 @@ export default function Step4OrderSummary({
     autoAdvanceTriggered.current = false;
   }, [products.length, shouldCalculateCanPickUp]);
 
+  // Resetear loading states cuando el padre termina de procesar (isProcessing vuelve a false)
+  React.useEffect(() => {
+    if (!isProcessing) {
+      setIsArtificialLoading(false);
+      setUserClickedWhileLoading(false);
+      autoAdvanceTriggered.current = false;
+    }
+  }, [isProcessing]);
+
   // COMENTADO: Este useEffect interfiere con nuestro loading visual inmediato
   // Resetear userClickedWhileLoading cuando canPickUp termina de cargar (para evitar bloqueos)
   // React.useEffect(() => {

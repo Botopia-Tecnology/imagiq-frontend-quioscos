@@ -22,6 +22,7 @@ interface KioskClientFormProps {
 interface CheckUserResponse {
   exists: boolean;
   userId: string | null;
+  email?: string;
   nombre?: string;
   apellido?: string;
   telefono?: string;
@@ -36,6 +37,7 @@ interface CreateGuestResponse {
 }
 
 type FormStep = "search" | "found" | "new" | "confirming";
+type SearchMode = "email" | "cedula";
 
 const countryCodes = [
   { code: "+57", country: "CO" },
@@ -93,7 +95,9 @@ const validators = {
 };
 
 export default function KioskClientForm({ onClientReady }: KioskClientFormProps) {
+  const [searchMode, setSearchMode] = useState<SearchMode>("email");
   const [email, setEmail] = useState("");
+  const [searchCedula, setSearchCedula] = useState("");
   const [step, setStep] = useState<FormStep>("search");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
@@ -155,26 +159,43 @@ export default function KioskClientForm({ onClientReady }: KioskClientFormProps)
   };
 
   const handleSearch = async () => {
-    if (!email.trim()) {
-      setError("Ingresa el correo del cliente");
-      return;
-    }
-    if (!/^[\w-.]+@[\w-]+\.[\w-.]+$/.test(email.trim())) {
-      setError("Formato de correo inválido");
-      return;
+    if (searchMode === "email") {
+      if (!email.trim()) {
+        setError("Ingresa el correo del cliente");
+        return;
+      }
+      if (!/^[\w-.]+@[\w-]+\.[\w-.]+$/.test(email.trim())) {
+        setError("Formato de correo inválido");
+        return;
+      }
+    } else {
+      if (!searchCedula.trim()) {
+        setError("Ingresa el número de documento del cliente");
+        return;
+      }
+      if (searchCedula.trim().length < 6 || searchCedula.trim().length > 10) {
+        setError("El número de documento debe tener entre 6 y 10 dígitos");
+        return;
+      }
     }
 
     setLoading(true);
     setError("");
 
     try {
-      const result = await apiPost<CheckUserResponse>("/api/orders/kiosk/check-user", {
-        email: email.toLowerCase().trim(),
-      });
+      const payload = searchMode === "email"
+        ? { email: email.toLowerCase().trim() }
+        : { numero_documento: searchCedula.trim() };
+
+      const result = await apiPost<CheckUserResponse>("/api/orders/kiosk/check-user", payload);
 
       if (result.exists && result.userId) {
         // User exists, populate form with data from check-user response
         setExistingUserId(result.userId);
+        // Si buscamos por cédula y el backend devuelve el email, lo seteamos
+        if (searchMode === "cedula" && result.email) {
+          setEmail(result.email);
+        }
         setForm({
           nombre: result.nombre || "",
           apellido: result.apellido || "",
@@ -192,7 +213,13 @@ export default function KioskClientForm({ onClientReady }: KioskClientFormProps)
       } else {
         // New client
         setExistingUserId(null);
-        setForm({ nombre: "", apellido: "", celular: "", tipo_documento: "CC", cedula: "" });
+        setForm({
+          nombre: "",
+          apellido: "",
+          celular: "",
+          tipo_documento: "CC",
+          cedula: searchMode === "cedula" ? searchCedula.trim() : "",
+        });
         setStep("new");
       }
     } catch (err) {
@@ -204,6 +231,16 @@ export default function KioskClientForm({ onClientReady }: KioskClientFormProps)
 
   const handleConfirmExisting = async () => {
     if (!existingUserId) return;
+
+    // Validar email
+    if (!email.trim()) {
+      setError("Ingresa el correo electrónico del cliente");
+      return;
+    }
+    if (!/^[\w-.]+@[\w-]+\.[\w-.]+$/.test(email.trim())) {
+      setError("Formato de correo inválido");
+      return;
+    }
 
     setLoading(true);
     setError("");
@@ -250,6 +287,18 @@ export default function KioskClientForm({ onClientReady }: KioskClientFormProps)
 
   const handleCreateGuest = async () => {
     if (!validateForm()) return;
+
+    // Validar email si se buscó por cédula
+    if (searchMode === "cedula") {
+      if (!email.trim()) {
+        setError("Ingresa el correo electrónico del cliente");
+        return;
+      }
+      if (!/^[\w-.]+@[\w-]+\.[\w-.]+$/.test(email.trim())) {
+        setError("Formato de correo inválido");
+        return;
+      }
+    }
 
     setLoading(true);
     setError("");
@@ -307,7 +356,7 @@ export default function KioskClientForm({ onClientReady }: KioskClientFormProps)
 
   const isFormValid = !Object.entries(validators).some(([key, fn]) => {
     return fn(form[key as keyof typeof form].trim()) !== "";
-  });
+  }) && (searchMode === "email" || (email.trim() && /^[\w-.]+@[\w-]+\.[\w-.]+$/.test(email.trim())));
 
   return (
     <div className="w-full flex items-start justify-center py-8 px-4">
@@ -320,28 +369,64 @@ export default function KioskClientForm({ onClientReady }: KioskClientFormProps)
             Datos del cliente
           </CardTitle>
           <CardDescription className="text-base">
-            Ingresa el correo del cliente para buscar su información o registrarlo
+            Busca al cliente por correo o número de documento para consultar su información o registrarlo
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-5 pt-2">
-          {/* Email search */}
+          {/* Search mode tabs */}
+          {step === "search" && (
+            <div className="flex rounded-lg bg-gray-100 p-1">
+              <button
+                type="button"
+                onClick={() => { setSearchMode("email"); setError(""); }}
+                className={`flex-1 py-2 px-3 rounded-md text-sm font-medium transition-all ${searchMode === "email" ? "bg-black text-white shadow-sm" : "text-gray-500 hover:text-gray-700"}`}
+              >
+                Correo electrónico
+              </button>
+              <button
+                type="button"
+                onClick={() => { setSearchMode("cedula"); setError(""); }}
+                className={`flex-1 py-2 px-3 rounded-md text-sm font-medium transition-all ${searchMode === "cedula" ? "bg-black text-white shadow-sm" : "text-gray-500 hover:text-gray-700"}`}
+              >
+                Número de documento
+              </button>
+            </div>
+          )}
+
+          {/* Search input */}
           <div className="space-y-2">
-            <Label htmlFor="client-email" className="text-base font-medium">Correo electrónico</Label>
+            <Label htmlFor="client-search" className="text-base font-medium">
+              {searchMode === "email" ? "Correo electrónico" : "Número de documento"}
+            </Label>
             <div className="flex gap-2">
-              <Input
-                id="client-email"
-                type="email"
-                placeholder="cliente@ejemplo.com"
-                value={email}
-                onChange={(e) => { setEmail(e.target.value); setError(""); }}
-                disabled={loading || step === "found" || step === "new"}
-                onKeyDown={(e) => { if (e.key === "Enter" && step === "search") handleSearch(); }}
-                className="h-10 text-base"
-              />
+              {searchMode === "email" ? (
+                <Input
+                  id="client-search"
+                  type="email"
+                  placeholder="cliente@ejemplo.com"
+                  value={email}
+                  onChange={(e) => { setEmail(e.target.value); setError(""); }}
+                  disabled={loading || step === "found" || step === "new"}
+                  onKeyDown={(e) => { if (e.key === "Enter" && step === "search") handleSearch(); }}
+                  className="h-10 text-base"
+                />
+              ) : (
+                <Input
+                  id="client-search"
+                  inputMode="numeric"
+                  placeholder="Número de documento"
+                  value={searchCedula}
+                  onChange={(e) => { setSearchCedula(e.target.value.replaceAll(/\D/g, "")); setError(""); }}
+                  disabled={loading || step === "found" || step === "new"}
+                  onKeyDown={(e) => { if (e.key === "Enter" && step === "search") handleSearch(); }}
+                  maxLength={10}
+                  className="h-10 text-base"
+                />
+              )}
               {step === "search" ? (
                 <Button
                   onClick={handleSearch}
-                  disabled={loading || !email.trim()}
+                  disabled={loading || (searchMode === "email" ? !email.trim() : !searchCedula.trim())}
                   className="bg-black hover:bg-gray-800 text-white shrink-0 px-4 h-10"
                 >
                   {loading ? <Loader2 className="h-4 w-4 animate-spin" /> : <Search className="h-4 w-4" />}
@@ -353,6 +438,7 @@ export default function KioskClientForm({ onClientReady }: KioskClientFormProps)
                   onClick={() => {
                     setStep("search");
                     setEmail("");
+                    setSearchCedula("");
                     setError("");
                     setExistingUserId(null);
                     setEditingFound(false);
@@ -401,6 +487,10 @@ export default function KioskClientForm({ onClientReady }: KioskClientFormProps)
                       <span className="text-sm text-gray-400">Celular</span>
                       <p className="text-base font-medium">{prefijo} {form.celular || "-"}</p>
                     </div>
+                    <div className="col-span-2">
+                      <span className="text-sm text-gray-400">Correo electrónico</span>
+                      <p className="text-base font-medium">{email || "-"}</p>
+                    </div>
                   </div>
                 ) : (
                   <div className="space-y-3">
@@ -419,7 +509,7 @@ export default function KioskClientForm({ onClientReady }: KioskClientFormProps)
                     <div className="space-y-1">
                       <Label className="text-sm">Documento</Label>
                       <div className="flex items-center gap-2">
-                        <Select value={form.tipo_documento} onValueChange={(v) => handleFieldChange("tipo_documento", v)} disabled={loading}>
+                        <Select value={form.tipo_documento} onValueChange={(v) => handleFieldChange("tipo_documento", v)} disabled={loading || searchMode === "cedula"}>
                           <SelectTrigger id="kiosk-edit-tipo-doc" className="h-10 text-base w-28 shrink-0"><SelectValue placeholder="Tipo" /></SelectTrigger>
                           <SelectContent>
                             <SelectItem value="CC">CC</SelectItem>
@@ -428,7 +518,7 @@ export default function KioskClientForm({ onClientReady }: KioskClientFormProps)
                             <SelectItem value="PP">PP</SelectItem>
                           </SelectContent>
                         </Select>
-                        <Input id="kiosk-edit-cedula" inputMode="numeric" value={form.cedula} onChange={(e) => handleFieldChange("cedula", e.target.value)} disabled={loading} maxLength={10} placeholder="Número de documento" className="h-10 text-base flex-1" />
+                        <Input id="kiosk-edit-cedula" inputMode="numeric" value={form.cedula} onChange={(e) => handleFieldChange("cedula", e.target.value)} disabled={loading || searchMode === "cedula"} maxLength={10} placeholder="Número de documento" className="h-10 text-base flex-1" />
                       </div>
                       {fieldErrors.cedula && <span className="text-red-500 text-xs">{fieldErrors.cedula}</span>}
                     </div>
@@ -446,6 +536,10 @@ export default function KioskClientForm({ onClientReady }: KioskClientFormProps)
                         <Input id="kiosk-edit-celular" inputMode="numeric" value={form.celular} onChange={(e) => handleFieldChange("celular", e.target.value)} disabled={loading} maxLength={15} className="h-10 text-base flex-1" />
                       </div>
                       {fieldErrors.celular && <span className="text-red-500 text-xs">{fieldErrors.celular}</span>}
+                    </div>
+                    <div className="space-y-1">
+                      <Label htmlFor="kiosk-edit-email" className="text-sm">Correo electrónico *</Label>
+                      <Input id="kiosk-edit-email" type="email" value={email} onChange={(e) => { setEmail(e.target.value); setError(""); }} disabled={loading || searchMode === "email"} placeholder="cliente@ejemplo.com" className="h-10 text-base" />
                     </div>
                   </div>
                 )}
@@ -495,6 +589,22 @@ export default function KioskClientForm({ onClientReady }: KioskClientFormProps)
               </div>
 
               <div className="space-y-3">
+                {/* Si buscó por cédula, pedir email */}
+                {searchMode === "cedula" && (
+                  <div className="space-y-1">
+                    <Label htmlFor="kiosk-new-email" className="text-sm">Correo electrónico *</Label>
+                    <Input
+                      id="kiosk-new-email"
+                      type="email"
+                      value={email}
+                      onChange={(e) => { setEmail(e.target.value); setError(""); }}
+                      disabled={loading}
+                      placeholder="cliente@ejemplo.com"
+                      className="h-10 text-base"
+                    />
+                  </div>
+                )}
+
                 <div className="grid grid-cols-2 gap-3">
                   <div className="space-y-1">
                     <Label htmlFor="kiosk-nombre" className="text-sm">Nombres *</Label>
