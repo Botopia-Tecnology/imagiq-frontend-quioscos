@@ -786,6 +786,7 @@ export interface ProductApiData {
   peso?: number[];
   device?: string[]; // Dispositivo al que está dirigido el accesorio (ej: "Galaxy S24", "Galaxy Watch")
   skuflixmedia?: string[]; // SKU para Flixmedia
+  gama?: string[]; // Gama del producto (ej: "Nuevo", "Linea", "N-1")
 }
 
 // Tipo unión para productos y bundles

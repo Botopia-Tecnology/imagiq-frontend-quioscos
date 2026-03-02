@@ -264,12 +264,6 @@ export default function LoginPage() {
               >
                 Crear cuenta
               </Link>
-              <Link
-                href="/login/forgot-password"
-                className="text-gray-600 hover:text-gray-900 underline"
-              >
-                ¿Olvidaste tu contraseña?
-              </Link>
             </div>
             <p className="text-center text-xs text-gray-500">
               Solo disponible para correos @botopia.tech, @imagiq.com o @imagiq.co
