@@ -38,6 +38,7 @@ import { productEndpoints, deliveryEndpoints, tradeInEndpoints } from "@/lib/api
 import useSecureStorage from "@/hooks/useSecureStorage";
 import { User } from "@/types/user";
 import RegisterGuestPasswordModal from "./components/RegisterGuestPasswordModal";
+import { connectKioskSocket, disconnectKioskSocket } from "@/lib/kiosk-socket";
 
 declare global {
   interface Window {
@@ -183,6 +184,61 @@ export default function Step7({ onBack }: Step7Props) {
 
   const [error, setError] = useState<string | string[] | null>(null);
   const [isResending, setIsResending] = useState(false);
+  const [resendCooldown, setResendCooldown] = useState(0);
+
+  // Cooldown timer for resend button
+  useEffect(() => {
+    if (resendCooldown <= 0) return;
+    const timer = setTimeout(() => setResendCooldown(resendCooldown - 1), 1000);
+    return () => clearTimeout(timer);
+  }, [resendCooldown]);
+
+  // WebSocket: escuchar orden aprobada en modo quiosco
+  const [showOrderApprovedModal, setShowOrderApprovedModal] = useState(false);
+
+  useEffect(() => {
+    const orderId = kioskPaymentLinkSent?.orderId;
+    if (!orderId) return;
+
+    console.log(`🔌 [KioskSocket] Conectando WebSocket para escuchar estado de orden: ${orderId}`);
+    const socket = connectKioskSocket();
+
+    socket.on('connect', () => {
+      console.log(`✅ [KioskSocket] WebSocket conectado (id: ${socket.id}), emitiendo watch_order para orderId: ${orderId}`);
+    });
+
+    socket.on('disconnect', (reason) => {
+      console.warn(`⚠️ [KioskSocket] WebSocket desconectado. Razón: ${reason}, orderId: ${orderId}`);
+    });
+
+    socket.on('connect_error', (error) => {
+      console.error(`❌ [KioskSocket] Error de conexión WebSocket:`, error.message, `orderId: ${orderId}`);
+    });
+
+    console.log(`📡 [KioskSocket] Emitiendo watch_order { orderId: ${orderId} }`);
+    socket.emit('watch_order', { orderId });
+
+    const handler = (data: { orderId: string }) => {
+      console.log(`🎉 [KioskSocket] Evento order_approved recibido:`, data);
+      if (data.orderId === orderId) {
+        console.log(`✅ [KioskSocket] Orden ${orderId} APROBADA! Mostrando modal.`);
+        setShowOrderApprovedModal(true);
+      }
+    };
+    socket.on('order_approved', handler);
+
+    console.log(`👂 [KioskSocket] Escuchando evento 'order_approved' para orderId: ${orderId}`);
+
+    return () => {
+      console.log(`🔌 [KioskSocket] Limpiando WebSocket para orderId: ${orderId}`);
+      socket.off('order_approved', handler);
+      socket.off('connect');
+      socket.off('disconnect');
+      socket.off('connect_error');
+      disconnectKioskSocket();
+    };
+  }, [kioskPaymentLinkSent?.orderId]);
+
   // Detectar modo kiosco para cambiar texto del botón
   const isKioskMode = typeof window !== 'undefined' && !!localStorage.getItem("kiosk_client_id");
   const [isLoadingShippingMethod, setIsLoadingShippingMethod] = useState(false);
@@ -1946,6 +2002,7 @@ export default function Step7({ onBack }: Step7Props) {
             };
             setKioskPaymentLinkSent(pseKioskState);
             localStorage.setItem('kiosk_payment_link_sent', JSON.stringify(pseKioskState));
+            setResendCooldown(60);
             setIsProcessing(false);
             break;
           }
@@ -2037,6 +2094,7 @@ export default function Step7({ onBack }: Step7Props) {
             };
             setKioskPaymentLinkSent(addiKioskState);
             localStorage.setItem('kiosk_payment_link_sent', JSON.stringify(addiKioskState));
+            setResendCooldown(60);
             setIsProcessing(false);
             break;
           }
@@ -2215,7 +2273,7 @@ export default function Step7({ onBack }: Step7Props) {
 
   // Kiosk: handler to resend payment link (calls kiosk endpoint directly)
   const handleKioskResendLink = async () => {
-    if (isResending || !paymentData) return;
+    if (isResending || resendCooldown > 0 || !paymentData) return;
     setIsResending(true);
     try {
       const kioskClient = (() => {
@@ -2240,6 +2298,7 @@ export default function Step7({ onBack }: Step7Props) {
       // Show success toast - if processOrder failed, the error state will be set
       if (!error) {
         toast.success("Link de pago reenviado exitosamente");
+        setResendCooldown(60);
       } else {
         toast.error("Error al reenviar el link de pago");
       }
@@ -2250,7 +2309,36 @@ export default function Step7({ onBack }: Step7Props) {
     }
   };
 
+  const handleOrderApprovedContinue = () => {
+    localStorage.removeItem('kiosk_payment_link_sent');
+    localStorage.removeItem('pending_order_id');
+    clearCart();
+    router.push('/');
+  };
+
   return (
+    <>
+      {/* Modal de pago confirmado via WebSocket */}
+      {showOrderApprovedModal && (
+        <div className="fixed inset-0 z-[9999] flex items-center justify-center bg-black/60">
+          <div className="bg-white rounded-2xl p-10 max-w-md w-full mx-4 text-center shadow-2xl">
+            <div className="mx-auto w-20 h-20 bg-green-100 rounded-full flex items-center justify-center mb-6">
+              <svg className="w-10 h-10 text-green-600" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
+                <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
+              </svg>
+            </div>
+            <h2 className="text-2xl font-bold text-gray-900 mb-2">¡Pago confirmado!</h2>
+            <p className="text-gray-600 mb-8">El cliente completó el pago exitosamente.</p>
+            <button
+              onClick={handleOrderApprovedContinue}
+              className="w-full bg-black text-white font-bold py-3 px-6 rounded-xl text-lg hover:bg-gray-800 transition-colors"
+            >
+              Continuar
+            </button>
+          </div>
+        </div>
+      )}
+
     <div className="min-h-screen w-full pb-40 md:pb-0">
       <div className="w-full max-w-7xl mx-auto px-4 py-6">
         <div className="mb-6">
@@ -2913,9 +3001,9 @@ export default function Step7({ onBack }: Step7Props) {
                 onFinishPayment={kioskPaymentLinkSent ? handleKioskResendLink : handleConfirmOrder}
                 onBack={kioskPaymentLinkSent ? handleKioskFinalize : onBack}
                 backText={kioskPaymentLinkSent ? "Finalizar orden" : "Volver"}
-                buttonText={kioskPaymentLinkSent ? (isResending ? "Reenviando..." : "Reenviar link") : (isKioskMode ? "Enviar link de pago" : "Confirmar y pagar")}
+                buttonText={kioskPaymentLinkSent ? (isResending ? "Reenviando..." : (resendCooldown > 0 ? `Reenviar link (${resendCooldown}s)` : "Reenviar link")) : (isKioskMode ? "Enviar link de pago" : "Confirmar y pagar")}
                 buttonVariant="green"
-                disabled={kioskPaymentLinkSent ? isResending : (isProcessing || isResending || isValidatingTradeIn || !tradeInValidation.isValid)}
+                disabled={kioskPaymentLinkSent ? (isResending || resendCooldown > 0) : (isProcessing || isResending || isValidatingTradeIn || !tradeInValidation.isValid)}
                 isSticky={true}
                 shippingVerification={shippingVerification}
                 deliveryMethod={shippingData?.type}
@@ -3125,23 +3213,28 @@ export default function Step7({ onBack }: Step7Props) {
           </div>
 
           {/* Derecha: Botón confirmar - destacado con sombra y glow */}
-          <button
-            className={`flex-shrink-0 font-bold py-4 px-6 rounded-xl text-lg transition-all duration-200 text-white border-2 flex items-center gap-2 ${
-              isProcessing || isValidatingTradeIn || !tradeInValidation.isValid
-                ? "bg-gray-400 border-gray-300 cursor-not-allowed"
-                : "bg-green-600 border-green-500 hover:bg-green-700 hover:border-green-600 cursor-pointer shadow-lg shadow-green-500/40 hover:shadow-xl hover:shadow-green-500/50"
-            }`}
-            onClick={kioskPaymentLinkSent ? handleKioskResendLink : handleConfirmOrder}
-            disabled={isProcessing || isResending || isValidatingTradeIn || !tradeInValidation.isValid}
-          >
-            {(isProcessing || isResending || isCalculatingShipping || isValidatingTradeIn) && (
-              <svg className="animate-spin h-5 w-5 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
-                <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
-                <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
-              </svg>
+          <div className="flex flex-col items-end gap-1">
+            <button
+              className={`flex-shrink-0 font-bold py-4 px-6 rounded-xl text-lg transition-all duration-200 text-white border-2 flex items-center gap-2 ${
+                isProcessing || isValidatingTradeIn || !tradeInValidation.isValid || (kioskPaymentLinkSent && resendCooldown > 0)
+                  ? "bg-gray-400 border-gray-300 cursor-not-allowed"
+                  : "bg-green-600 border-green-500 hover:bg-green-700 hover:border-green-600 cursor-pointer shadow-lg shadow-green-500/40 hover:shadow-xl hover:shadow-green-500/50"
+              }`}
+              onClick={kioskPaymentLinkSent ? handleKioskResendLink : handleConfirmOrder}
+              disabled={isProcessing || isResending || isValidatingTradeIn || !tradeInValidation.isValid || !!(kioskPaymentLinkSent && resendCooldown > 0)}
+            >
+              {(isProcessing || isResending || isCalculatingShipping || isValidatingTradeIn) && (
+                <svg className="animate-spin h-5 w-5 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                  <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                  <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                </svg>
+              )}
+              <span>{isProcessing || isResending || isValidatingTradeIn ? "Procesando..." : (kioskPaymentLinkSent ? "Reenviar link" : (isKioskMode ? "Enviar link de pago" : "Confirmar y pagar"))}</span>
+            </button>
+            {kioskPaymentLinkSent && resendCooldown > 0 && (
+              <span className="text-xs text-gray-500">Reenviar en {resendCooldown}s</span>
             )}
-            <span>{isProcessing || isResending || isValidatingTradeIn ? "Procesando..." : (kioskPaymentLinkSent ? "Reenviar link" : (isKioskMode ? "Enviar link de pago" : "Confirmar y pagar"))}</span>
-          </button>
+          </div>
         </div>
       </div>
 
@@ -3181,5 +3274,6 @@ export default function Step7({ onBack }: Step7Props) {
         }
       />
     </div>
+    </>
   );
 }

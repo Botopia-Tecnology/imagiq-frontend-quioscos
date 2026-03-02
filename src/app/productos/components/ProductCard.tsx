@@ -816,9 +816,10 @@ export default function ProductCard({
 
                   {/* Mostrar stock disponible ajustado */}
                   {productSelection.selectedVariant && (
-                    <div className="text-sm text-gray-600 mt-2">
+                    <div className="text-sm text-gray-600 mt-2" suppressHydrationWarning>
                       Stock disponible:{" "}
                       <span
+                        suppressHydrationWarning
                         className={cn(
                           "ml-1 font-semibold",
                           realStock > 0 ? "text-green-600" : "text-red-600"
@@ -1036,6 +1037,7 @@ export default function ProductCard({
             {/* Botones de acción - Horizontal */}
             <div className="flex items-center gap-3">
               <button
+                suppressHydrationWarning
                 onClick={(e) => {
                   e.stopPropagation();
                   if (
