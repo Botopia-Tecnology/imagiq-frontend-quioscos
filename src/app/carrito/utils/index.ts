@@ -80,7 +80,7 @@ export async function payWithPse(props: PsePaymentData): Promise<{ redirectUrl: 
  * Kiosk mode: Creates PSE payment and sends bank redirect link to customer's email
  */
 export async function kioskPayWithPse(
-  props: PsePaymentData & { kioskCustomerEmail: string; kioskCustomerPhone?: string; previousOrderId?: string }
+  props: PsePaymentData & { kioskCustomerEmail: string; kioskCustomerPhone?: string; previousOrderId?: string; kioskStoreId?: string }
 ): Promise<KioskEmailSentResponse | { error: string; message: string }> {
   try {
     const data = await apiPost<KioskEmailSentResponse>('/api/payments/kiosk/pse', props);
@@ -98,7 +98,7 @@ export async function kioskPayWithPse(
  * Kiosk mode: Creates Addi application and sends redirect link to customer's email
  */
 export async function kioskPayWithAddi(
-  props: AddiPaymentData & { kioskCustomerEmail: string; kioskCustomerPhone?: string; previousOrderId?: string }
+  props: AddiPaymentData & { kioskCustomerEmail: string; kioskCustomerPhone?: string; previousOrderId?: string; kioskStoreId?: string }
 ): Promise<KioskEmailSentResponse | { error: string; message: string }> {
   try {
     const data = await apiPost<KioskEmailSentResponse>('/api/payments/kiosk/addi', props);

@@ -1860,6 +1860,7 @@ export default function Step7({ onBack }: Step7Props) {
               },
               informacion_facturacion,
               beneficios: buildBeneficios(),
+              kioskStoreId: authContext.user?.id || loggedUser?.id || "",
             };
 
             const processRes = await kioskProcessDatafono(datafonoPayload);
@@ -2051,6 +2052,7 @@ export default function Step7({ onBack }: Step7Props) {
                 return phone.startsWith(countryCode) ? phone : `${countryCode}${phone}`;
               })(),
               previousOrderId: kioskPaymentLinkSent?.orderId,
+              kioskStoreId: authContext.user?.id || loggedUser?.id || "",
             });
             if ("error" in kioskRes) {
               setError(kioskRes.message);
@@ -2143,6 +2145,7 @@ export default function Step7({ onBack }: Step7Props) {
                 return phone.startsWith(countryCode) ? phone : `${countryCode}${phone}`;
               })(),
               previousOrderId: kioskPaymentLinkSent?.orderId,
+              kioskStoreId: authContext.user?.id || loggedUser?.id || "",
             });
             if ("error" in kioskRes) {
               setError(kioskRes.message);
@@ -2213,6 +2216,7 @@ export default function Step7({ onBack }: Step7Props) {
             },
             informacion_facturacion,
             beneficios: buildBeneficios(),
+            kioskStoreId: authContext.user?.id || loggedUser?.id || "",
           };
 
           console.log("🏪 [Step7] Creando orden Datafono/Efectivo...");
