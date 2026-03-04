@@ -22,7 +22,7 @@ import { toast } from "sonner";
 import { DBCard, DecryptedCardData } from "@/features/profile/types";
 import { encryptionService } from "@/lib/encryption";
 import CardBrandLogo from "@/components/ui/CardBrandLogo";
-import { payWithAddi, payWithCard, payWithPse, fetchBanks, kioskPayWithPse, kioskPayWithAddi } from "./utils";
+import { payWithAddi, payWithCard, payWithPse, fetchBanks, kioskPayWithPse, kioskPayWithAddi, kioskCreateDatafonoOrder, kioskConfirmDatafono, kioskProcessDatafono } from "./utils";
 import { useCart } from "@/hooks/useCart";
 import { useCardsCache } from "./hooks/useCardsCache";
 import { useDelivery } from "./hooks/useDelivery";
@@ -181,6 +181,15 @@ export default function Step7({ onBack }: Step7Props) {
       localStorage.removeItem('pending_order_id');
     };
   }, []);
+
+  // Datafono/Efectivo flow states
+  const [datafonoOrderId, setDatafonoOrderId] = useState<string | null>(null);
+  const [datafonoOrderCreated, setDatafonoOrderCreated] = useState(false);
+  const [datafonoConfirmed, setDatafonoConfirmed] = useState(false);
+  const [isConfirmingDatafono, setIsConfirmingDatafono] = useState(false);
+
+  // Kiosk tarjeta/datafono flow states
+  const [datafonoSerialId] = useState<string | null>(null);
 
   const [error, setError] = useState<string | string[] | null>(null);
   const [isResending, setIsResending] = useState(false);
@@ -1808,14 +1817,68 @@ export default function Step7({ onBack }: Step7Props) {
 
       switch (paymentData?.method) {
         case "tarjeta": {
-          //           console.log("💳 [Step7] ========== PAGO CON TARJETA ==========");
-          //           console.log("💳 [Step7] userInfo.direccionId enviado:", checkoutAddress?.id || "");
-          //           console.log("💳 [Step7] userInfo.userId enviado:", authContext.user?.id || String(loggedUser?.id));
-          //           console.log("💳 [Step7] informacion_facturacion.direccion_id enviado:", informacion_facturacion.direccion_id);
-          //           console.log("💳 [Step7] metodo_envio:", metodo_envio);
-          //           console.log("💳 [Step7] codigo_bodega:", codigo_bodega);
-          //           console.log("💳 [Step7] ==========================================");
+          // KIOSK MODE: Use datafono process flow (creates order + guides without recogida)
+          if (isKioskMode) {
+            console.log("🏪 [Step7] KIOSK MODE - Procesando orden datafono (tarjeta/efectivo)...");
+            const kioskClientData = (() => {
+              try { const kc = localStorage.getItem('kiosk_client_id'); return kc ? JSON.parse(kc) : null; } catch { return null; }
+            })();
 
+            const datafonoPayload = {
+              totalAmount: String(calculations.total),
+              shippingAmount: String(calculations.shipping),
+              currency: "COP",
+              items: products.map((p) => ({
+                id: String(p.id),
+                sku: String(p.sku),
+                name: String(p.name),
+                quantity: String(p.quantity),
+                unitPrice: String(p.price),
+                skupostback: p.skuPostback || p.sku || "",
+                desDetallada: p.desDetallada || p.name || "",
+                ean: p.ean && p.ean !== "" ? String(p.ean) : String(p.sku),
+                category: p.categoria || "",
+                ...(p.bundleInfo && {
+                  bundleInfo: {
+                    codCampana: p.bundleInfo.codCampana,
+                    productSku: p.bundleInfo.productSku,
+                    skusBundle: p.bundleInfo.skusBundle,
+                    bundlePrice: p.bundleInfo.bundlePrice,
+                    bundleDiscount: p.bundleInfo.bundleDiscount,
+                    fechaFinal: p.bundleInfo.fechaFinal,
+                  },
+                }),
+              })),
+              metodo_envio,
+              codigo_bodega,
+              userInfo: {
+                direccionId: effectiveAddress?.id || "",
+                userId: (() => {
+                  if (kioskClientData?.userId) return kioskClientData.userId;
+                  return authContext.user?.id || String(loggedUser?.id);
+                })(),
+              },
+              informacion_facturacion,
+              beneficios: buildBeneficios(),
+              kioskStoreId: authContext.user?.id || loggedUser?.id || "",
+            };
+
+            const processRes = await kioskProcessDatafono(datafonoPayload);
+
+            if ("error" in processRes) {
+              setError(processRes.message);
+              throw new Error(processRes.message);
+            }
+
+            console.log("✅ [Step7] Orden creada:", processRes.orderId, "Serial:", processRes.serialId);
+
+            // Go directly to verify-purchase with countdown timer
+            setIsProcessing(false);
+            router.push(`/verify-purchase/${processRes.orderId}?from=kiosk`);
+            break;
+          }
+
+          // REGULAR (non-kiosk) card payment flow
           const res = await payWithCard({
             currency: "COP",
             dues: String(paymentData.installments || "1"),
@@ -1989,6 +2052,7 @@ export default function Step7({ onBack }: Step7Props) {
                 return phone.startsWith(countryCode) ? phone : `${countryCode}${phone}`;
               })(),
               previousOrderId: kioskPaymentLinkSent?.orderId,
+              kioskStoreId: authContext.user?.id || loggedUser?.id || "",
             });
             if ("error" in kioskRes) {
               setError(kioskRes.message);
@@ -2081,6 +2145,7 @@ export default function Step7({ onBack }: Step7Props) {
                 return phone.startsWith(countryCode) ? phone : `${countryCode}${phone}`;
               })(),
               previousOrderId: kioskPaymentLinkSent?.orderId,
+              kioskStoreId: authContext.user?.id || loggedUser?.id || "",
             });
             if ("error" in kioskRes) {
               setError(kioskRes.message);
@@ -2107,6 +2172,66 @@ export default function Step7({ onBack }: Step7Props) {
           }
           localStorage.removeItem('kiosk_client_id');
           router.push(res.redirectUrl);
+          break;
+        }
+        case "datafono_efectivo": {
+          // Datafono/Efectivo: crear orden sin datos de pago y postear a Novasol
+          const kioskClientDatafono = (() => {
+            try { const kc = localStorage.getItem('kiosk_client_id'); return kc ? JSON.parse(kc) : null; } catch { return null; }
+          })();
+
+          const datafonoPayload = {
+            totalAmount: String(calculations.total),
+            shippingAmount: String(calculations.shipping),
+            currency: "COP",
+            items: products.map((p) => ({
+              id: String(p.id),
+              sku: String(p.sku),
+              name: String(p.name),
+              quantity: String(p.quantity),
+              unitPrice: String(p.price),
+              skupostback: p.skuPostback || p.sku || "",
+              desDetallada: p.desDetallada || p.name || "",
+              ean: p.ean && p.ean !== "" ? String(p.ean) : String(p.sku),
+              category: p.categoria || "",
+              ...(p.bundleInfo && {
+                bundleInfo: {
+                  codCampana: p.bundleInfo.codCampana,
+                  productSku: p.bundleInfo.productSku,
+                  skusBundle: p.bundleInfo.skusBundle,
+                  bundlePrice: p.bundleInfo.bundlePrice,
+                  bundleDiscount: p.bundleInfo.bundleDiscount,
+                  fechaFinal: p.bundleInfo.fechaFinal,
+                },
+              }),
+            })),
+            metodo_envio,
+            codigo_bodega,
+            userInfo: {
+              direccionId: effectiveAddress?.id || "",
+              userId: (() => {
+                if (kioskClientDatafono?.userId) return kioskClientDatafono.userId;
+                return authContext.user?.id || String(loggedUser?.id);
+              })(),
+            },
+            informacion_facturacion,
+            beneficios: buildBeneficios(),
+            kioskStoreId: authContext.user?.id || loggedUser?.id || "",
+          };
+
+          console.log("🏪 [Step7] Creando orden Datafono/Efectivo...");
+          const datafonoRes = await kioskCreateDatafonoOrder(datafonoPayload);
+
+          if ("error" in datafonoRes) {
+            setError(datafonoRes.message);
+            throw new Error(datafonoRes.message);
+          }
+
+          console.log("✅ [Step7] Orden Datafono creada:", datafonoRes.orderId, "Novasol:", datafonoRes.novasoftPosted);
+          setDatafonoOrderId(datafonoRes.orderId);
+          setDatafonoOrderCreated(true);
+          setIsProcessing(false);
+          toast.success(`Orden posteada a Novasol exitosamente`);
           break;
         }
         default:
@@ -2223,11 +2348,13 @@ export default function Step7({ onBack }: Step7Props) {
   const getPaymentMethodLabel = (method: string) => {
     switch (method) {
       case "tarjeta":
-        return "Tarjeta de crédito/débito";
+        return isKioskMode ? "Tarjeta (crédito - débito) o efectivo" : "Tarjeta de crédito/débito";
       case "pse":
         return "PSE - Pago Seguro en Línea";
       case "addi":
         return "Paga a cuotas con Addi";
+      case "datafono_efectivo":
+        return "Datafono / Efectivo";
       default:
         return method;
     }
@@ -2309,6 +2436,34 @@ export default function Step7({ onBack }: Step7Props) {
     }
   };
 
+  // Datafono/Efectivo: confirmar que el pago se realizó en el datafono/efectivo
+  const handleDatafonoConfirm = async () => {
+    if (!datafonoOrderId || isConfirmingDatafono) return;
+    setIsConfirmingDatafono(true);
+    setError(null);
+    try {
+      console.log("🏪 [Step7] Confirmando pago Datafono/Efectivo para orden:", datafonoOrderId);
+      const res = await kioskConfirmDatafono(datafonoOrderId);
+
+      if ("error" in res) {
+        setError(res.message);
+        toast.error(res.message);
+        return;
+      }
+
+      console.log("✅ [Step7] Orden Datafono confirmada:", res);
+      setDatafonoConfirmed(true);
+      toast.success("Compra confirmada exitosamente");
+    } catch (err) {
+      console.error("❌ [Step7] Error confirmando datafono:", err);
+      const msg = err instanceof Error ? err.message : "Error al confirmar la compra";
+      setError(msg);
+      toast.error(msg);
+    } finally {
+      setIsConfirmingDatafono(false);
+    }
+  };
+
   const handleOrderApprovedContinue = () => {
     localStorage.removeItem('kiosk_payment_link_sent');
     localStorage.removeItem('pending_order_id');
@@ -2318,6 +2473,28 @@ export default function Step7({ onBack }: Step7Props) {
 
   return (
     <>
+      {/* Modal de Datafono/Efectivo confirmado */}
+      {datafonoConfirmed && (
+        <div className="fixed inset-0 z-[9999] flex items-center justify-center bg-black/60">
+          <div className="bg-white rounded-2xl p-10 max-w-md w-full mx-4 text-center shadow-2xl">
+            <div className="mx-auto w-20 h-20 bg-green-100 rounded-full flex items-center justify-center mb-6">
+              <svg className="w-10 h-10 text-green-600" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
+                <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
+              </svg>
+            </div>
+            <h2 className="text-2xl font-bold text-gray-900 mb-2">Compra confirmada</h2>
+            <p className="text-gray-600 mb-2">El pago ha sido registrado exitosamente.</p>
+            <p className="text-sm text-gray-500 mb-6">Pedido N° {datafonoSerialId || datafonoOrderId}</p>
+            <button
+              onClick={handleKioskFinalize}
+              className="w-full bg-black text-white font-bold py-3 px-6 rounded-xl text-lg hover:bg-gray-800 transition-colors"
+            >
+              Volver al inicio
+            </button>
+          </div>
+        </div>
+      )}
+
       {/* Modal de pago confirmado via WebSocket */}
       {showOrderApprovedModal && (
         <div className="fixed inset-0 z-[9999] flex items-center justify-center bg-black/60">
@@ -2358,6 +2535,28 @@ export default function Step7({ onBack }: Step7Props) {
             </>
           )}
         </div>
+
+        {/* Banner de estado Datafono/Efectivo (legacy) */}
+        {paymentData?.method === "datafono_efectivo" && datafonoOrderCreated && !datafonoConfirmed && (
+          <div className="bg-amber-50 border-2 border-amber-300 rounded-lg p-4 mb-4">
+            <div className="flex items-center gap-3">
+              <div className="w-10 h-10 bg-amber-100 rounded-full flex items-center justify-center shrink-0">
+                <CreditCard className="w-5 h-5 text-amber-700" />
+              </div>
+              <div>
+                <p className="font-semibold text-amber-900">Orden posteada a Novasol</p>
+                <p className="text-sm text-amber-700">
+                  Orden: <span className="font-mono font-bold">{datafonoOrderId}</span>
+                </p>
+                <p className="text-sm text-amber-700 mt-1">
+                  Procesa el pago en el datafono o efectivo y luego presiona &quot;Confirmar compra&quot;.
+                </p>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* Banner Kiosk Tarjeta/Datafono: ya no se necesita aquí, se usa la página completa (early return arriba) */}
 
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
           {/* Sección de resumen */}
@@ -2995,13 +3194,39 @@ export default function Step7({ onBack }: Step7Props) {
                   </div>
                 </div>
               </div>
+            ) : paymentData?.method === "datafono_efectivo" && isKioskMode ? (
+              /* Datafono/Efectivo: flujo de 2 botones */
+              <Step4OrderSummary
+                isProcessing={isProcessing || isConfirmingDatafono}
+                onFinishPayment={datafonoOrderCreated ? handleDatafonoConfirm : handleConfirmOrder}
+                onBack={datafonoOrderCreated ? handleKioskFinalize : onBack}
+                backText={datafonoOrderCreated ? "Cancelar" : "Volver"}
+                buttonText={
+                  datafonoOrderCreated
+                    ? (isConfirmingDatafono ? "Confirmando..." : "Confirmar compra")
+                    : (isProcessing ? "Posteando orden..." : "Postear orden")
+                }
+                buttonVariant="green"
+                disabled={isProcessing || isConfirmingDatafono || isValidatingTradeIn || !tradeInValidation.isValid}
+                isSticky={true}
+                shippingVerification={shippingVerification}
+                deliveryMethod={shippingData?.type}
+                error={error}
+                shouldCalculateCanPickUp={false}
+                debugStoresInfo={{
+                  availableStoresWhenCanPickUpFalse: availableStoresWhenCanPickUpFalse.length,
+                  stores: stores.length,
+                  filteredStores: filteredStores.length,
+                  availableCities: availableCities.length,
+                }}
+              />
             ) : (
               <Step4OrderSummary
                 isProcessing={isProcessing || isResending}
                 onFinishPayment={kioskPaymentLinkSent ? handleKioskResendLink : handleConfirmOrder}
                 onBack={kioskPaymentLinkSent ? handleKioskFinalize : onBack}
                 backText={kioskPaymentLinkSent ? "Finalizar orden" : "Volver"}
-                buttonText={kioskPaymentLinkSent ? (isResending ? "Reenviando..." : (resendCooldown > 0 ? `Reenviar link (${resendCooldown}s)` : "Reenviar link")) : (isKioskMode ? "Enviar link de pago" : "Confirmar y pagar")}
+                buttonText={kioskPaymentLinkSent ? (isResending ? "Reenviando..." : (resendCooldown > 0 ? `Reenviar link (${resendCooldown}s)` : "Reenviar link")) : (isKioskMode && paymentData?.method === "tarjeta" ? "Confirmar orden y proceder al pago" : (isKioskMode ? "Enviar link de pago" : "Confirmar y pagar"))}
                 buttonVariant="green"
                 disabled={kioskPaymentLinkSent ? (isResending || resendCooldown > 0) : (isProcessing || isResending || isValidatingTradeIn || !tradeInValidation.isValid)}
                 isSticky={true}

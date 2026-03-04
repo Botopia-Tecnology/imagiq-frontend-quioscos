@@ -80,7 +80,7 @@ export async function payWithPse(props: PsePaymentData): Promise<{ redirectUrl: 
  * Kiosk mode: Creates PSE payment and sends bank redirect link to customer's email
  */
 export async function kioskPayWithPse(
-  props: PsePaymentData & { kioskCustomerEmail: string; kioskCustomerPhone?: string; previousOrderId?: string }
+  props: PsePaymentData & { kioskCustomerEmail: string; kioskCustomerPhone?: string; previousOrderId?: string; kioskStoreId?: string }
 ): Promise<KioskEmailSentResponse | { error: string; message: string }> {
   try {
     const data = await apiPost<KioskEmailSentResponse>('/api/payments/kiosk/pse', props);
@@ -98,7 +98,7 @@ export async function kioskPayWithPse(
  * Kiosk mode: Creates Addi application and sends redirect link to customer's email
  */
 export async function kioskPayWithAddi(
-  props: AddiPaymentData & { kioskCustomerEmail: string; kioskCustomerPhone?: string; previousOrderId?: string }
+  props: AddiPaymentData & { kioskCustomerEmail: string; kioskCustomerPhone?: string; previousOrderId?: string; kioskStoreId?: string }
 ): Promise<KioskEmailSentResponse | { error: string; message: string }> {
   try {
     const data = await apiPost<KioskEmailSentResponse>('/api/payments/kiosk/addi', props);
@@ -109,6 +109,111 @@ export async function kioskPayWithAddi(
       return { error: "payment_failed", message: error.message || "Failed to process kiosk Addi payment" };
     }
     return { error: "network_error", message: "Error de conexión al procesar el pago" };
+  }
+}
+
+/**
+ * Kiosk mode: Creates a datafono/efectivo order (no payment data) and posts to Novasol
+ */
+export async function kioskCreateDatafonoOrder(
+  props: Record<string, any>
+): Promise<{ orderId: string; novasoftPosted: boolean } | { error: string; message: string }> {
+  try {
+    const data = await apiPost<{ orderId: string; novasoftPosted: boolean }>('/api/payments/kiosk/datafono', props);
+    return data;
+  } catch (error) {
+    console.error("Error creating kiosk datafono order:", error);
+    if (error instanceof Error) {
+      return { error: "order_failed", message: error.message || "Failed to create datafono order" };
+    }
+    return { error: "network_error", message: "Error de conexión al crear la orden" };
+  }
+}
+
+/**
+ * Kiosk mode: Confirms a datafono/efectivo order after physical payment
+ */
+export async function kioskConfirmDatafono(
+  orderId: string
+): Promise<{ orderId: string; status: string; result: any } | { error: string; message: string }> {
+  try {
+    const data = await apiPost<{ orderId: string; status: string; result: any }>(`/api/payments/kiosk/datafono/confirm/${orderId}`, {});
+    return data;
+  } catch (error) {
+    console.error("Error confirming kiosk datafono order:", error);
+    if (error instanceof Error) {
+      return { error: "confirm_failed", message: error.message || "Failed to confirm datafono order" };
+    }
+    return { error: "network_error", message: "Error de conexión al confirmar la orden" };
+  }
+}
+
+/**
+ * Kiosk mode: Processes a datafono order (creates order + shipping guides WITHOUT recogida)
+ */
+export async function kioskProcessDatafono(
+  props: Record<string, any>
+): Promise<{ orderId: string; serialId: string; novasoftPosted: boolean; guides: { numero_guia: string; url_seguimiento: string; cod_bodega: string | null; nombre_tienda: string | null }[] } | { error: string; message: string }> {
+  try {
+    const data = await apiPost<{ orderId: string; serialId: string; novasoftPosted: boolean; guides: { numero_guia: string; url_seguimiento: string; cod_bodega: string | null; nombre_tienda: string | null }[] }>('/api/payments/kiosk/datafono/process', props);
+    return data;
+  } catch (error) {
+    console.error("Error processing kiosk datafono order:", error);
+    if (error instanceof Error) {
+      return { error: "process_failed", message: error.message || "Failed to process datafono order" };
+    }
+    return { error: "network_error", message: "Error de conexión al procesar la orden" };
+  }
+}
+
+/**
+ * Kiosk mode: Polls for shipping guides (created in background after processDatafono)
+ */
+export async function kioskGetGuides(
+  orderId: string
+): Promise<{ orderId: string; ready: boolean; guides: { numero_guia: string; url_seguimiento: string; cod_bodega: string | null; nombre_tienda: string | null }[] } | null> {
+  try {
+    const data = await apiGet<{ orderId: string; ready: boolean; guides: { numero_guia: string; url_seguimiento: string; cod_bodega: string | null; nombre_tienda: string | null }[] }>(`/api/payments/kiosk/datafono/guides/${orderId}`);
+    return data;
+  } catch (error) {
+    console.error("Error fetching kiosk guides:", error);
+    return null;
+  }
+}
+
+/**
+ * Kiosk mode: Confirms physical payment - requests recogida for existing guides
+ */
+export async function kioskConfirmDatafonoPayment(
+  orderId: string
+): Promise<{ orderId: string; status: string; guides: any[] } | { error: string; message: string }> {
+  try {
+    const data = await apiPost<{ orderId: string; status: string; guides: any[] }>(`/api/payments/kiosk/datafono/confirm-payment/${orderId}`, {});
+    return data;
+  } catch (error) {
+    console.error("Error confirming kiosk datafono payment:", error);
+    if (error instanceof Error) {
+      return { error: "confirm_failed", message: error.message || "Failed to confirm datafono payment" };
+    }
+    return { error: "network_error", message: "Error de conexión al confirmar el pago" };
+  }
+}
+
+/**
+ * Kiosk mode: Cancels datafono order - annuls shipping guides
+ */
+export async function kioskCancelDatafonoPayment(
+  orderId: string
+): Promise<{ orderId: string; status: string; serialId?: string } | { error: string; message: string }> {
+  try {
+    const data = await apiPost<{ orderId: string; status: string; serialId?: string }>(`/api/payments/kiosk/datafono/cancel-payment/${orderId}`, {});
+    return data;
+  } catch (error) {
+    console.error("Error cancelling kiosk datafono payment:", error);
+    if (error instanceof Error) {
+      return { error: "cancel_failed", message: error.message || "Failed to cancel datafono payment" };
+    }
+    return { error: "network_error", message: "Error de conexión al cancelar la orden" };
   }
 }
 

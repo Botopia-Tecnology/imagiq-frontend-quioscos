@@ -211,27 +211,40 @@ export default function Step6({ onBack, onContinue }: Step6Props) {
     }));
   };
 
-  // Cargar direcciones del usuario
+  // Cargar direcciones del usuario - solo mostrar la más reciente
   useEffect(() => {
     const loadAddresses = async () => {
       if (!user) return;
 
       setIsLoadingAddresses(true);
       try {
-        const user = safeGetLocalStorage<{ id?: string }>("imagiq_user", {});
+        // En modo kiosk, usar el ID del cliente kiosk, no el de la cuenta de tienda
+        let userId = "";
+        const kioskClientStr = localStorage.getItem("kiosk_client_id");
+        if (kioskClientStr) {
+          try {
+            const kc = JSON.parse(kioskClientStr);
+            userId = kc.userId || kc.id || "";
+          } catch { /* ignore */ }
+        }
+        if (!userId) {
+          const userInfo = safeGetLocalStorage<{ id?: string }>("imagiq_user", {});
+          userId = userInfo?.id || "";
+        }
+
         const userAddresses = await addressesService.getUserAddressesByType(
           "FACTURACION",
-          user?.id || ""
+          userId
         );
-        setAddresses(userAddresses);
 
-        // Auto-seleccionar dirección predeterminada
-        const defaultAddress = userAddresses.find(
-          (addr) => addr.esPredeterminada
-        );
-        if (defaultAddress) {
-          setSelectedAddressId(defaultAddress.id);
-          handleAddressSelect(defaultAddress);
+        // Solo mostrar la última dirección de facturación (la más reciente)
+        const latestOnly = userAddresses.length > 0 ? [userAddresses[0]] : [];
+        setAddresses(latestOnly);
+
+        // Auto-seleccionar la última dirección
+        if (latestOnly.length > 0) {
+          setSelectedAddressId(latestOnly[0].id);
+          handleAddressSelect(latestOnly[0]);
         }
       } catch (error) {
         console.error("Error loading addresses:", error);
@@ -457,21 +470,10 @@ export default function Step6({ onBack, onContinue }: Step6Props) {
   };
 
   const handleAddressAdded = async (newAddress: Address) => {
-    // Recargar direcciones
-    try {
-      const user = safeGetLocalStorage<{ id?: string }>("imagiq_user", {});
-      const userAddresses = await addressesService.getUserAddressesByType(
-        "FACTURACION",
-        user?.id || ""
-      );
-      setAddresses(userAddresses);
-
-      // Seleccionar la nueva dirección
-      handleAddressSelect(newAddress);
-      handleCloseAddAddressModal();
-    } catch (error) {
-      console.error("Error reloading addresses:", error);
-    }
+    // Solo mostrar la dirección recién creada (la más reciente)
+    setAddresses([newAddress]);
+    handleAddressSelect(newAddress);
+    handleCloseAddAddressModal();
   };
 
   // Abrir modal de confirmación para eliminar

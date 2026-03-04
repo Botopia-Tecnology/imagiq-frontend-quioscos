@@ -13,6 +13,7 @@ import React, { useEffect, useRef, useState } from "react";
 type LogoReloadAnimationProps = {
   open: boolean;
   onFinish?: () => void;
+  text?: string;
 };
 
 // Logo Samsung desde Cloudinary - Usando el patrón estándar de la app
@@ -34,6 +35,7 @@ const LOGO_SRC = `${CLOUDINARY_BASE_URL}/f_auto,q_auto:best/${LOGO_PUBLIC_ID}`;
 const LogoReloadAnimation: React.FC<LogoReloadAnimationProps> = ({
   open,
   onFinish,
+  text,
 }) => {
   // Estado para controlar el cambio de texto
   const [showSecondText, setShowSecondText] = useState(false);
@@ -208,7 +210,7 @@ const LogoReloadAnimation: React.FC<LogoReloadAnimationProps> = ({
             lineHeight: 1.1,
           }}
         >
-          {showSecondText ? `Ya casi es tuya${dots}` : `Procesando la compra${dots}`}
+          {`${text || "Procesando tu compra"}${dots}`}
         </span>
       </div>
     ),

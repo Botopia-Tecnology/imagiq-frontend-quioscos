@@ -573,7 +573,7 @@ export default function AddNewAddressForm({
       // Crear dirección de envío (o facturación si billingOnly)
       const shippingAddressRequest: CreateAddressRequest = {
         // Si es billingOnly, usar nombre automático "Dirección de facturación"
-        nombreDireccion: billingOnly ? "Dirección de facturación" : formData.nombreDireccion,
+        nombreDireccion: billingOnly ? "facturacion" : formData.nombreDireccion,
         tipoDireccion: formData.tipoDireccion,
         // Si es billingOnly, siempre es tipo FACTURACION
         tipo: billingOnly ? "FACTURACION" : (formData.usarMismaParaFacturacion ? "AMBOS" : "ENVIO"),

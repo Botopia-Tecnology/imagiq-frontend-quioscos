@@ -241,6 +241,12 @@ export default function Step4({
       return false;
     }
 
+    // Si es datafono_efectivo, siempre válido (no requiere datos adicionales)
+    if (paymentMethod === "datafono_efectivo") return true;
+
+    // Kiosk (rol 5) con tarjeta: siempre válido (puede ser datafono/efectivo, no requiere datos de tarjeta)
+    if (paymentMethod === "tarjeta" && userRole === 5) return true;
+
     // Si es tarjeta, debe tener una tarjeta seleccionada O estar usando una nueva Y que el formulario sea válido
     if (paymentMethod === "tarjeta") {
       // Para roles 2 y 4: DEBEN seleccionar una tarjeta guardada (no ven formulario de nueva)
@@ -294,7 +300,8 @@ export default function Step4({
     // Validar y procesar formulario de tarjeta inline si corresponde
     // IMPORTANTE: Si no hay selectedCardId, significa que estamos usando tarjeta nueva
     // No depender de useNewCard porque puede no estar sincronizado
-    const isUsingNewCard = paymentMethod === "tarjeta" && !selectedCardId;
+    // Kiosk (rol 5): no procesar tarjeta inline (es datafono/efectivo presencial)
+    const isUsingNewCard = paymentMethod === "tarjeta" && !selectedCardId && userRole !== 5;
     // console.log("💳 [Step4] handleContinueToNextStep:", { paymentMethod, selectedCardId, useNewCard, isUsingNewCard, hasFormRef: !!formRef.current });
 
     if (isUsingNewCard && formRef.current) {
