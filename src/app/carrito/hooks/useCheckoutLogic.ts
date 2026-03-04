@@ -392,7 +392,8 @@ export function useCheckoutLogic() {
     }
 
     // Validar campos de tarjeta si corresponde
-    if (paymentMethod === "tarjeta") {
+    // Kiosk (rol 5): no requiere datos de tarjeta (es pago presencial datafono/efectivo)
+    if (paymentMethod === "tarjeta" && !isKioskMode) {
       // Verificar que haya seleccionado una tarjeta guardada O esté usando una nueva
       const hasTempCard = typeof window !== 'undefined' && localStorage.getItem("checkout-card-data");
 
@@ -459,7 +460,8 @@ export function useCheckoutLogic() {
     }
 
     // Validar campos de tarjeta si corresponde
-    if (paymentMethod === "tarjeta") {
+    // Kiosk (rol 5): no requiere datos de tarjeta (es pago presencial datafono/efectivo)
+    if (paymentMethod === "tarjeta" && !isKioskMode) {
       // Verificar que haya seleccionado una tarjeta guardada O esté usando una nueva
       const hasTempCard = typeof window !== 'undefined' && localStorage.getItem("checkout-card-data");
 

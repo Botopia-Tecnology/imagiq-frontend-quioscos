@@ -120,6 +120,21 @@ export default function Step4Page() {
   const handleBack = () => router.push("/carrito/step3");
 
   const handleNext = () => {
+    const paymentMethod = localStorage.getItem("checkout-payment-method");
+
+    // Kiosk (rol 5) con tarjeta: saltar Step5 (cuotas no aplican, es datafono/efectivo)
+    const userRole = loggedUser ? ((loggedUser as User & { rol?: number }).rol ?? (loggedUser as User).role) : null;
+    if (userRole === 5 && paymentMethod === "tarjeta") {
+      router.push("/carrito/step6");
+      return;
+    }
+
+    // Si es datafono_efectivo, saltar Step5 (cuotas no aplican) e ir directo a Step6
+    if (paymentMethod === "datafono_efectivo") {
+      router.push("/carrito/step6");
+      return;
+    }
+
     // CRÍTICO: Si es tarjeta de débito, saltar Step5 (cuotas) e ir directo a Step6 (facturación)
     // Las cuotas solo aplican para tarjetas de crédito
 

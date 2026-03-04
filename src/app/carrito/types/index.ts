@@ -80,7 +80,7 @@ export interface PsePaymentData extends BasicPaymentData {
   bankName: string;
   description: string;
 }
-export type PaymentMethod = "addi" | "tarjeta" | "pse";
+export type PaymentMethod = "addi" | "tarjeta" | "pse" | "datafono_efectivo";
 
 // Zero Interest Installments Types
 export interface CheckZeroInterestRequest {

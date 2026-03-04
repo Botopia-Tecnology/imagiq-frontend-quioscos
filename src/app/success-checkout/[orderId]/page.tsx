@@ -14,7 +14,7 @@
  * - Envío automático de mensaje de WhatsApp con confirmación
  */
 
-import { useRouter } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import { use, useEffect, useRef, useState } from "react";
 import CheckoutSuccessOverlay from "../../carrito/CheckoutSuccessOverlay";
 import { useCart } from "@/hooks/useCart";
@@ -105,6 +105,8 @@ export default function SuccessCheckoutPage({
 }: Readonly<{ params: Promise<{ orderId: string }> }>) {
   const pathParams = use(params);
   const router = useRouter();
+  const searchParams = useSearchParams();
+  const isKiosk = searchParams.get("from") === "kiosk";
   const [open, setOpen] = useState(true);
   const { clearCart } = useCart();
   const { trackPurchase } = useAnalyticsWithUser();
@@ -848,8 +850,30 @@ export default function SuccessCheckoutPage({
         localStorage.removeItem("checkout-card-data");
       }
 
-      // Redirigir al tracking service
-      router.push(`/tracking-service/${pathParams.orderId}`);
+      // Kiosk: redirigir al home. Normal: redirigir al tracking service
+      if (isKiosk) {
+        // Limpiar datos de kiosk
+        localStorage.removeItem("kiosk_client_id");
+        localStorage.removeItem("kiosk_client");
+        localStorage.removeItem("kiosk_pago_data");
+        localStorage.removeItem("kiosk_payment_link_sent");
+        localStorage.removeItem("pending_order_id");
+        localStorage.removeItem("checkout-address");
+        localStorage.removeItem("imagiq_default_address");
+        localStorage.removeItem("imagiq_candidate_stores_cache");
+        localStorage.removeItem("checkout-billing-data");
+        localStorage.removeItem("checkout-envio-imagiq");
+        localStorage.removeItem("checkout-received-by-client");
+        localStorage.removeItem("checkout-zero-interest");
+        localStorage.removeItem("checkout-delivery-method");
+        localStorage.removeItem("checkout-payment-method");
+        localStorage.removeItem("checkout-selected-bank");
+        localStorage.removeItem("checkout-installments");
+        localStorage.removeItem("checkout-saved-card-id");
+        router.push("/");
+      } else {
+        router.push(`/tracking-service/${pathParams.orderId}`);
+      }
     }, 300);
   };
 

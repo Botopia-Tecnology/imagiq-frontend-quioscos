@@ -38,6 +38,7 @@ const KNOWN_ROUTES = new Set([
   "imagiq-tracking",
   "pagar-pse",
   "pagar-addi",
+  "kiosk-pago",
 
   // Información
   "nosotros",
@@ -133,7 +134,7 @@ export async function middleware(request: NextRequest) {
   }
 
   // --- Protección de rutas: requiere autenticación ---
-  const PUBLIC_PATHS = new Set(["login", "register", "auth", "pagar-pse", "pagar-addi"]);
+  const PUBLIC_PATHS = new Set(["login", "register", "auth", "pagar-pse", "pagar-addi", "kiosk-pago"]);
   const firstSeg = pathname.split("/").filter(Boolean)[0] || "";
 
   if (!PUBLIC_PATHS.has(firstSeg)) {

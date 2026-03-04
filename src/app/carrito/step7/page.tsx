@@ -1,14 +1,36 @@
 "use client";
 import Step7 from "../Step7";
-import { useRouter } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import { useEffect, useState } from "react";
+import { toast } from "sonner";
 import useSecureStorage from "@/hooks/useSecureStorage";
 import { User } from "@/types/user";
 
 export default function Step7Page() {
   const router = useRouter();
+  const searchParams = useSearchParams();
   const [isChecking, setIsChecking] = useState(true);
   const [loggedUser] = useSecureStorage<User | null>("imagiq_user", null);
+
+  // Show toast if redirected from cancelled/rejected kiosk order (ONLY kiosk)
+  useEffect(() => {
+    if (searchParams.get("from") !== "kiosk") return;
+    const status = searchParams.get("status");
+    const serial = searchParams.get("serial");
+    if (!status) return;
+
+    const pedidoLabel = serial ? `Pedido #${serial}` : "Pedido";
+
+    if (status === "payment_rejected") {
+      toast.error(`${pedidoLabel} cancelado por pago rechazado. Las guías han sido anuladas.`, { duration: 6000 });
+    } else if (status === "order_cancelled") {
+      toast.error(`${pedidoLabel} cancelado. Las guías han sido anuladas.`, { duration: 6000 });
+    }
+
+    if (status === "payment_rejected" || status === "order_cancelled") {
+      window.history.replaceState({}, "", "/carrito/step7");
+    }
+  }, [searchParams]);
 
   // Protección: Solo permitir acceso si hay usuario logueado (invitado o regular con token)
   useEffect(() => {

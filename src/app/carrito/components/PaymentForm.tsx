@@ -413,7 +413,7 @@ export default function PaymentForm({
                           <line x1="2" y1="10" x2="22" y2="10" strokeWidth="2" />
                         </svg>
                         <span className="font-medium text-black">
-                          Tarjeta de crédito o débito
+                          {userRole === 5 ? "Tarjeta (crédito - débito) o efectivo" : "Tarjeta de crédito o débito"}
                         </span>
                       </div>
                     </span>
@@ -536,6 +536,7 @@ export default function PaymentForm({
                 </a>
               </div>
             </div>
+
           </div>
         </div>
       </div>
