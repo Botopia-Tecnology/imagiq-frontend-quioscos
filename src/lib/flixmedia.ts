@@ -211,3 +211,42 @@ export function preloadFlixmediaScriptEarly() {
 
   console.log('🚀 [Flixmedia] Early preload + DNS prefetch + preconnect initialized');
 }
+
+export function hasPremiumContent(
+  apiProduct?: {
+    imagenPremium?: string[][];
+    videoPremium?: string[][];
+    imagen_premium?: string[][];
+    video_premium?: string[][];
+  },
+  productColors?: Array<{
+    imagen_premium?: string[];
+    video_premium?: string[];
+  }>
+): boolean {
+  const checkArrayOfArrays = (arr?: string[][]): boolean => {
+    if (!arr || !Array.isArray(arr)) return false;
+    return arr.some((innerArray: string[]) => {
+      if (!Array.isArray(innerArray) || innerArray.length === 0) return false;
+      return innerArray.some(item => item && typeof item === 'string' && item.trim() !== '');
+    });
+  };
+
+  const hasApiPremiumContent =
+    checkArrayOfArrays(apiProduct?.imagenPremium) ||
+    checkArrayOfArrays(apiProduct?.videoPremium) ||
+    checkArrayOfArrays(apiProduct?.imagen_premium) ||
+    checkArrayOfArrays(apiProduct?.video_premium);
+
+  const hasColorPremiumContent = productColors?.some(color => {
+    const hasColorImages = color.imagen_premium && Array.isArray(color.imagen_premium) &&
+      color.imagen_premium.length > 0 &&
+      color.imagen_premium.some(img => img && typeof img === 'string' && img.trim() !== '');
+    const hasColorVideos = color.video_premium && Array.isArray(color.video_premium) &&
+      color.video_premium.length > 0 &&
+      color.video_premium.some(vid => vid && typeof vid === 'string' && vid.trim() !== '');
+    return hasColorImages || hasColorVideos;
+  }) || false;
+
+  return hasApiPremiumContent || hasColorPremiumContent;
+}

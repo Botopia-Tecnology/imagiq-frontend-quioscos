@@ -1,16 +1,16 @@
 /**
- * 🎬 MULTIMEDIA PAGE - IMAGIQ ECOMMERCE
+ * MULTIMEDIA PAGE - IMAGIQ ECOMMERCE
  *
- * Página dedicada para mostrar contenido multimedia enriquecido de Flixmedia
- * Se accede desde el botón "Más información" de las cards de producto
+ * Pagina dedicada para mostrar contenido multimedia enriquecido de Flixmedia
+ * Se accede desde el boton "Mas informacion" de las cards de producto
  *
  * Ruta: /productos/multimedia/[id]
  *
- * Características:
- * - Carga contenido 360°, videos y especificaciones de Samsung
+ * Caracteristicas:
+ * - Carga contenido 360, videos y especificaciones de Samsung
  * - Obtiene MPN/EAN del producto desde el backend
- * - Diseño limpio enfocado en el contenido multimedia
- * - Botón para volver a la vista anterior
+ * - Diseno limpio enfocado en el contenido multimedia
+ * - Boton para volver a la vista anterior
  */
 
 "use client";
@@ -21,6 +21,8 @@ import { useProduct } from "@/features/products/useProducts";
 import FlixmediaPlayer from "@/components/FlixmediaPlayer";
 import MultimediaBottomBar from "@/components/MultimediaBottomBar";
 import { usePrefetchProduct } from "@/hooks/usePrefetchProduct";
+import { hasPremiumContent, preloadFlixmediaScriptEarly } from "@/lib/flixmedia";
+import MultimediaQuickNavBar from "./MultimediaQuickNavBar";
 
 // Skeleton de carga mejorado
 function MultimediaPageSkeleton() {
@@ -44,14 +46,14 @@ function MultimediaPageSkeleton() {
               </div>
             </div>
 
-            {/* Skeleton botón */}
+            {/* Skeleton boton */}
             <div className="flex-shrink-0">
               <div className="h-12 bg-gray-200 rounded-full w-32 animate-pulse" />
             </div>
           </div>
         </div>
 
-        {/* Línea decorativa */}
+        {/* Linea decorativa */}
         <div className="h-1 w-full bg-gradient-to-r from-gray-200 via-gray-300 to-gray-200 animate-pulse" />
       </div>
 
@@ -90,7 +92,18 @@ export default function MultimediaPage({
 
   const { product, loading, error } = useProduct(id);
 
-  // Estado para almacenar la selección del usuario desde localStorage
+  // DEBUG: Rastrear estado del producto en cada render
+  console.log('[MULTIMEDIA] Render:', {
+    routeId: id,
+    productId: product?.id,
+    productMatch: product?.id === id,
+    loading,
+    error,
+    hasProduct: !!product,
+    productSkuflixmedia: product?.skuflixmedia,
+  });
+
+  // Estado para almacenar la seleccion del usuario desde localStorage
   // Inicializar como null para evitar hydration mismatch (servidor no tiene acceso a localStorage)
   const [selectedProductData, setSelectedProductData] = useState<{
     productName?: string;
@@ -109,36 +122,60 @@ export default function MultimediaPage({
     segmento?: string | string[];
   } | null>(null);
 
-  // Leer localStorage después del mount para evitar hydration mismatch
+  // Track del id actual para detectar cambio de producto sincronicamente durante el render.
+  // useEffect corre DESPUES del render, asi que sin esto el primer render post-navegacion
+  // usaria selectedProductData stale del producto anterior -> MPN incorrecto para Flixmedia.
+  const [currentId, setCurrentId] = useState(id);
+  if (currentId !== id) {
+    console.log('[MULTIMEDIA] ID cambio:', { from: currentId, to: id, resettingSelectedData: true });
+    setCurrentId(id);
+    setSelectedProductData(null);
+  }
+
+  // Precargar DNS + script de Flixmedia lo antes posible
+  useEffect(() => {
+    preloadFlixmediaScriptEarly();
+  }, []);
+
+  // Leer localStorage despues del mount para evitar hydration mismatch
   useEffect(() => {
     const savedSelection = localStorage.getItem(`product_selection_${id}`);
     if (savedSelection) {
       try {
-        const parsedData = JSON.parse(savedSelection);
-        setSelectedProductData(parsedData);
+        const parsed = JSON.parse(savedSelection);
+        console.log('[MULTIMEDIA] localStorage para', id, ':', {
+          skuflixmedia: parsed?.skuflixmedia,
+          sku: parsed?.sku,
+          productName: parsed?.productName,
+        });
+        setSelectedProductData(parsed);
       } catch (e) {
         console.error("Error parsing saved product selection:", e);
+        setSelectedProductData(null);
       }
+    } else {
+      console.log('[MULTIMEDIA] Sin localStorage para', id);
+      setSelectedProductData(null);
     }
   }, [id]);
 
   // Precargar los datos del producto para la vista de detalle (view/viewpremium)
-  // mientras el usuario ve el multimedia. Esto hace que la navegación sea instantánea
+  // mientras el usuario ve el multimedia. Esto hace que la navegacion sea instantanea
   usePrefetchProduct({
     productId: id,
     delay: 0, // Sin delay para precarga inmediata
-    enabled: !loading && !error && !!product, // Solo precargar si el producto se cargó exitosamente
+    enabled: !loading && !error && !!product, // Solo precargar si el producto se cargo exitosamente
   });
 
 
   // Loading state - Solo mostrar skeleton si NO hay datos locales
-  // Si tenemos datos locales (Optimistic UI), mostramos la página inmediatamente
+  // Si tenemos datos locales (Optimistic UI), mostramos la pagina inmediatamente
   // mientras useProduct actualiza los datos en background
   if (loading && !selectedProductData) {
     return <MultimediaPageSkeleton />;
   }
 
-  // Error state - Solo si no hay producto Y no hay datos locales, volver atrás
+  // Error state - Solo si no hay producto Y no hay datos locales, volver atras
   if ((error || !product) && !selectedProductData) {
     router.back();
     return null;
@@ -167,7 +204,24 @@ export default function MultimediaPage({
   // EAN solo como respaldo si hay skuflixmedia pero se necesita EAN
   const productEan = productSku ? (allEans.length > 0 ? allEans[0] : null) : null;
 
-  // Parsear precios a números
+  // DEBUG: Rastrear resolucion del SKU
+  console.log('[MULTIMEDIA] SKU resolucion:', {
+    routeId: id,
+    productSku,
+    productEan,
+    sources: {
+      'selectedData.skuflixmedia': selectedProductData?.skuflixmedia,
+      'product.skuflixmedia': product?.skuflixmedia,
+      'apiProduct.skuflixmedia[0]': product?.apiProduct?.skuflixmedia?.[0],
+      'selectedData.sku': selectedProductData?.sku,
+      'allSkus[0]': allSkus[0],
+    },
+    selectedProductDataKeys: selectedProductData ? Object.keys(selectedProductData) : null,
+    hasProduct: !!product,
+    loading,
+  });
+
+  // Parsear precios a numeros
   const parsePrice = (price: string | number | undefined): number => {
     if (typeof price === "number") return price;
     if (!price) return 0;
@@ -219,56 +273,25 @@ export default function MultimediaPage({
 
   // Obtener allPrices: usar de localStorage si existe, sino del producto, sino usar el precio actual
   const rawAllPrices = selectedProductData?.allPrices ?? product?.apiProduct?.precioeccommerce ?? [];
-  // Asegurar que allPrices tenga al menos el precio actual para el cálculo de cuotas
+  // Asegurar que allPrices tenga al menos el precio actual para el calculo de cuotas
   const allPrices = rawAllPrices.length > 0 ? rawAllPrices : (numericPrice > 0 ? [numericPrice] : []);
 
   // Obtener nombre del producto: usar de localStorage si existe, sino del producto
   const displayProductName = selectedProductData?.productName ?? product?.name;
 
-  // Función helper para verificar si el producto es premium
+  // Funcion helper para verificar si el producto es premium
   const isPremiumProduct = (segmento?: string | string[]): boolean => {
     if (!segmento) return false;
     const segmentoValue = Array.isArray(segmento) ? segmento[0] : segmento;
     return segmentoValue?.toUpperCase() === 'PREMIUM';
   };
 
-  // Función helper para verificar si el producto tiene contenido premium
-  // Verifica tanto en apiProduct como en los colores del producto
-  const hasPremiumContent = (): boolean => {
+  const hasPremiumContentCheck = (): boolean => {
     if (!product) return false;
-
-    // Verificar en apiProduct (imagenPremium/videoPremium o sus alias)
-    // imagenPremium/videoPremium vienen como string[][] (array de arrays)
-    const checkArrayOfArrays = (arr?: string[][]): boolean => {
-      if (!arr || !Array.isArray(arr)) return false;
-      return arr.some((innerArray: string[]) => {
-        if (!Array.isArray(innerArray) || innerArray.length === 0) return false;
-        return innerArray.some(item => item && typeof item === 'string' && item.trim() !== '');
-      });
-    };
-
-    const hasApiPremiumContent =
-      checkArrayOfArrays(product.apiProduct?.imagenPremium) ||
-      checkArrayOfArrays(product.apiProduct?.videoPremium) ||
-      checkArrayOfArrays(product.apiProduct?.imagen_premium) ||
-      checkArrayOfArrays(product.apiProduct?.video_premium);
-
-    // Verificar en los colores del producto (imagen_premium/video_premium)
-    // En los colores vienen como string[] (array simple)
-    const hasColorPremiumContent = product.colors?.some(color => {
-      const hasColorImages = color.imagen_premium && Array.isArray(color.imagen_premium) &&
-        color.imagen_premium.length > 0 &&
-        color.imagen_premium.some(img => img && typeof img === 'string' && img.trim() !== '');
-      const hasColorVideos = color.video_premium && Array.isArray(color.video_premium) &&
-        color.video_premium.length > 0 &&
-        color.video_premium.some(vid => vid && typeof vid === 'string' && vid.trim() !== '');
-      return hasColorImages || hasColorVideos;
-    }) || false;
-
-    return hasApiPremiumContent || hasColorPremiumContent;
+    return hasPremiumContent(product.apiProduct, product.colors);
   };
 
-  // Determinar la ruta según el segmento O el contenido premium del producto
+  // Determinar la ruta segun el segmento O el contenido premium del producto
   // Enviar a viewpremium si tiene segmento premium O tiene contenido premium
   // Verificar segmento en: localStorage, product.segmento, o product.apiProduct.segmento
   const getSegmento = (): string | undefined => {
@@ -291,25 +314,11 @@ export default function MultimediaPage({
 
   const segmento = getSegmento();
   const isPremium = isPremiumProduct(segmento);
-  const hasPremium = hasPremiumContent();
+  const hasPremium = hasPremiumContentCheck();
 
-  // DEBUG: Log para verificar valores
-  console.log('[MULTIMEDIA] 🔍 Verificando ruta:', {
-    segmento,
-    isPremium,
-    hasPremium,
-    productSegmento: product?.segmento,
-    apiProductSegmento: product?.apiProduct?.segmento,
-    hasApiPremiumImages: !!product?.apiProduct?.imagenPremium?.length,
-    hasApiPremiumVideos: !!product?.apiProduct?.videoPremium?.length,
-  });
-
-  // Usar viewpremium si es premium O tiene contenido premium
   const viewRoute = (isPremium || hasPremium)
     ? `/productos/viewpremium/${id}`
     : `/productos/view/${id}`;
-
-  console.log('[MULTIMEDIA] ➡️ Ruta seleccionada:', viewRoute);
 
   return (
     <div className="min-h-screen bg-white flex flex-col">
@@ -324,6 +333,9 @@ export default function MultimediaPage({
         isVisible={true}
       />
 
+      {/* QuickNavBar: Caracteristicas / Especificaciones - detecta secciones de Flixmedia */}
+      <MultimediaQuickNavBar />
+
       {/* Contenido principal - Flixmedia Player con padding para el navbar y el bar fijo */}
       <div
         className="flex-1 pt-[70px] xl:pt-[50px] bg-white"
@@ -336,6 +348,7 @@ export default function MultimediaPage({
           segmento={segmento}
           apiProduct={product?.apiProduct}
           productColors={product?.colors}
+          skipMatchApi={false}
           className=""
         />
       </div>

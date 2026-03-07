@@ -1,6 +1,6 @@
 /**
  * FlixmediaPlayer Component
- * 
+ *
  * Usa la API de Match de Flixmedia para verificar contenido ANTES de cargar.
  * Si no hay contenido, redirige inmediatamente sin esperar.
  */
@@ -8,13 +8,14 @@
 "use client";
 
 import { useEffect, memo, useCallback, useState, useRef } from "react";
-import { parseSkuString, generateMpnVariants } from "@/lib/flixmedia";
+import { parseSkuString, checkFlixmediaAvailability, checkFlixmediaAvailabilityByEan, hasPremiumContent as checkPremiumContent } from "@/lib/flixmedia";
 import { useRouter } from "next/navigation";
 
 declare global {
   interface Window {
     flixJsCallbacks?: {
-      setLoadCallback: (fn: () => void, type?: string) => void;
+      // Dual API: Flixmedia llama con (type) para notificar, o se registra con (fn, type)
+      setLoadCallback: (typeOrFn: unknown, type?: string) => void;
       loadService: (type: string) => void;
     };
   }
@@ -29,7 +30,9 @@ interface FlixmediaPlayerProps {
   segmento?: string | string[];
   // Cuando es true, no redirige si no hay contenido (para uso embebido)
   preventRedirect?: boolean;
-  // Información del producto para verificar contenido premium
+  // Cuando es true, salta Match API y carga loader.js directo (mas rapido, para pagina multimedia)
+  skipMatchApi?: boolean;
+  // Informacion del producto para verificar contenido premium
   apiProduct?: {
     imagenPremium?: string[][];
     videoPremium?: string[][];
@@ -45,41 +48,6 @@ interface FlixmediaPlayerProps {
 const DISTRIBUTOR_ID = "17257";
 const LANGUAGE = "f5";
 
-/**
- * Hook personalizado para precargar Flixmedia temprano
- */
-function useFlixmediaPreload() {
-  useEffect(() => {
-    // Precargar recursos de Flixmedia apenas se monte el componente
-    if (typeof window === 'undefined') return;
-
-    // DNS prefetch
-    const dnsPrefetch = document.createElement('link');
-    dnsPrefetch.rel = 'dns-prefetch';
-    dnsPrefetch.href = '//media.flixfacts.com';
-    if (!document.querySelector('link[href="//media.flixfacts.com"]')) {
-      document.head.appendChild(dnsPrefetch);
-    }
-
-    // Preconnect
-    const preconnect = document.createElement('link');
-    preconnect.rel = 'preconnect';
-    preconnect.href = 'https://media.flixfacts.com';
-    preconnect.crossOrigin = 'anonymous';
-    if (!document.querySelector('link[href="https://media.flixfacts.com"]')) {
-      document.head.appendChild(preconnect);
-    }
-
-    // Preload del script
-    const preload = document.createElement('link');
-    preload.rel = 'preload';
-    preload.as = 'script';
-    preload.href = '//media.flixfacts.com/js/loader.js';
-    if (!document.querySelector('link[href="//media.flixfacts.com/js/loader.js"]')) {
-      document.head.appendChild(preload);
-    }
-  }, []);
-}
 
 function FlixmediaPlayerComponent({
   mpn,
@@ -88,33 +56,40 @@ function FlixmediaPlayerComponent({
   productId,
   segmento,
   preventRedirect = false,
+  skipMatchApi = false,
   apiProduct,
   productColors
 }: FlixmediaPlayerProps) {
   const router = useRouter();
-  const [containerId] = useState(() => `flix-inpage-${Date.now()}`);
+  // Container ID UNICO por producto: evita que scripts de Flixmedia del producto anterior
+  // (append.js, inpage.js con polling setTimeout) interfieran con el contenido nuevo.
+  // Estos scripts buscan su container por ID y manipulan el DOM (resize, accordion, etc.).
+  // Con un ID estatico, los scripts viejos encuentran el container nuevo y lo corrompen.
+  const containerId = `flix-inpage-${productId || 'default'}`;
   const [hasContent, setHasContent] = useState<boolean | null>(null);
-  // Estado para ocultar si Flixmedia muestra error después de cargar
   const [hasFlixError, setHasFlixError] = useState(false);
 
-  // Precargar recursos de Flixmedia temprano
-  useFlixmediaPreload();
-
   // Refs para mantener valores actuales (evitar stale closures)
+  // Router ref es CLAVE: useRouter() cambia de referencia en Next.js, lo que
+  // causaba que redirectToView se recreara y el effect se re-ejecutara innecesariamente
+  const routerRef = useRef(router);
   const segmentoRef = useRef(segmento);
   const productIdRef = useRef(productId);
   const apiProductRef = useRef(apiProduct);
   const productColorsRef = useRef(productColors);
   const preventRedirectRef = useRef(preventRedirect);
+  const skipMatchApiRef = useRef(skipMatchApi);
 
   // Actualizar refs cuando cambien las props
   useEffect(() => {
+    routerRef.current = router;
     segmentoRef.current = segmento;
     productIdRef.current = productId;
     apiProductRef.current = apiProduct;
     productColorsRef.current = productColors;
     preventRedirectRef.current = preventRedirect;
-  }, [segmento, productId, apiProduct, productColors, preventRedirect]);
+    skipMatchApiRef.current = skipMatchApi;
+  }, [router, segmento, productId, apiProduct, productColors, preventRedirect, skipMatchApi]);
 
   const applyStyles = useCallback(() => {
     if (document.getElementById("flixmedia-player-styles")) return;
@@ -126,6 +101,7 @@ function FlixmediaPlayerComponent({
         visibility: hidden !important;
       }
       [id^="flix-inpage"] { width: 100%; min-height: 200px; }
+      [id*="flix-inpage"] { width: 100%; min-height: 200px; }
 
       /* Ocultar errores de Flixmedia con fondo azul */
       [style*="background-color: rgb(23, 64, 122)"],
@@ -144,76 +120,66 @@ function FlixmediaPlayerComponent({
     document.head.appendChild(style);
   }, []);
 
-  // Función helper para verificar si el producto tiene contenido premium (usa refs)
-  const hasPremiumContent = useCallback((): boolean => {
-    const currentApiProduct = apiProductRef.current;
-    const currentProductColors = productColorsRef.current;
-
-    // Verificar en apiProduct (imagenPremium/videoPremium o sus alias)
-    const checkArrayOfArrays = (arr?: string[][]): boolean => {
-      if (!arr || !Array.isArray(arr)) return false;
-      return arr.some((innerArray: string[]) => {
-        if (!Array.isArray(innerArray) || innerArray.length === 0) return false;
-        return innerArray.some(item => item && typeof item === 'string' && item.trim() !== '');
-      });
-    };
-
-    const hasApiPremiumContent =
-      checkArrayOfArrays(currentApiProduct?.imagenPremium) ||
-      checkArrayOfArrays(currentApiProduct?.videoPremium) ||
-      checkArrayOfArrays(currentApiProduct?.imagen_premium) ||
-      checkArrayOfArrays(currentApiProduct?.video_premium);
-
-    // Verificar en los colores del producto (imagen_premium/video_premium)
-    const hasColorPremiumContent = currentProductColors?.some(color => {
-      const hasColorImages = color.imagen_premium && Array.isArray(color.imagen_premium) &&
-        color.imagen_premium.length > 0 &&
-        color.imagen_premium.some(img => img && typeof img === 'string' && img.trim() !== '');
-      const hasColorVideos = color.video_premium && Array.isArray(color.video_premium) &&
-        color.video_premium.length > 0 &&
-        color.video_premium.some(vid => vid && typeof vid === 'string' && vid.trim() !== '');
-      return hasColorImages || hasColorVideos;
-    }) || false;
-
-    return hasApiPremiumContent || hasColorPremiumContent;
-  }, []); // Sin dependencias porque usa refs
+  const hasPremiumContentCheck = useCallback((): boolean => {
+    return checkPremiumContent(apiProductRef.current, productColorsRef.current);
+  }, []);
 
   const redirectToView = useCallback(() => {
-    // Si preventRedirect está activo, no redirigir
-    if (preventRedirectRef.current) {
-      return;
-    }
+    if (preventRedirectRef.current) return;
 
-    // Verificar segmento premium (usando ref para valor actual)
     const currentSegmento = segmentoRef.current;
     const currentProductId = productIdRef.current;
     const isPremiumSegment = currentSegmento && (Array.isArray(currentSegmento) ? currentSegmento[0] : currentSegmento)?.toUpperCase() === 'PREMIUM';
+    const hasPremium = hasPremiumContentCheck();
 
-    // Verificar contenido premium
-    const hasPremium = hasPremiumContent();
-
-    // Usar viewpremium si tiene segmento premium O contenido premium
     const route = (isPremiumSegment || hasPremium)
       ? `/productos/viewpremium/${currentProductId}`
       : `/productos/view/${currentProductId}`;
 
-    router.replace(route);
-  }, [router, hasPremiumContent]); // Sin dependencias de props directas
+    routerRef.current.replace(route);
+  }, [hasPremiumContentCheck]);
 
   useEffect(() => {
-    let isMounted = true;
+    // Reset estado para nueva inicializacion (evita stale state de producto anterior en SPA nav)
+    setHasContent(null);
+    setHasFlixError(false);
 
-    // Solo limpiar scripts de ESTE contenedor específico, no de otros componentes
-    const cleanupOwnScripts = () => {
-      const ownScripts = document.querySelectorAll(`script[data-flix-inpage="${containerId}"]`);
-      ownScripts.forEach(s => s.remove());
+    // Durante SPA navigation, mpn pasa brevemente por null mientras selectedProductData
+    // se resetea y useProduct carga datos frescos. NO inicializar en este estado transitorio:
+    // - Evita redirect accidental a view (init() llama redirectToView cuando no hay MPN)
+    // - Evita limpiar globals de Flixmedia innecesariamente
+    // El effect se re-ejecutara cuando mpn reciba el valor correcto del nuevo producto.
+    if (!mpn && !ean) {
+      console.log('[FLIX] Effect: mpn y ean son null -> esperando datos del producto');
+      return;
+    }
+
+    let isMounted = true;
+    const abortController = new AbortController();
+    let observer: MutationObserver | null = null;
+    let initTimeoutId: ReturnType<typeof setTimeout> | null = null;
+
+    // Limpiar scripts y callbacks de Flixmedia para inicializacion limpia.
+    // IMPORTANTE: Solo se llama al INICIO de una nueva inicializacion (dentro del setTimeout),
+    // NUNCA en el cleanup del effect (StrictMode cancelaria el timeout del mount 1).
+    //
+    // NO borrar FlixjQ/FlixjQ2/FlixServices: los scripts del producto anterior (append.js,
+    // inpage.js) tienen polling con setTimeout recursivo que NO se puede cancelar. Si borramos
+    // estos globals, cada ciclo de setTimeout produce "FlixjQ is not defined" y corrompe el
+    // estado del nuevo loader.js. Dejandolos, los scripts viejos usan el FlixjQ existente
+    // sin errores, y el nuevo loader.js lo sobrescribe con su version fresca.
+    const cleanupFlixmedia = () => {
+      // Remover scripts y iframes de Flixmedia del DOM (detiene nuevas cargas pero no setTimeouts internos)
+      document.querySelectorAll('script[data-flix-distributor]').forEach(s => s.remove());
+      document.querySelectorAll('script[src*="flixfacts.com"], script[src*="flixcar.com"]').forEach(s => s.remove());
+      document.querySelectorAll('iframe[src*="flixcar.com"], iframe[src*="flixfacts.com"]').forEach(el => el.remove());
+      // Solo limpiar callbacks para evitar que scripts del producto anterior invoquen nuestros handlers
+      delete window.flixJsCallbacks;
     };
 
-    // Limpiar solo scripts propios al inicio
-    cleanupOwnScripts();
+    const initStartTime = performance.now();
 
     const init = async () => {
-      // Parsear SKUs
       let targetMpn: string | null = null;
       let targetEan: string | null = null;
 
@@ -226,6 +192,8 @@ function FlixmediaPlayerComponent({
         if (eans.length > 0) targetEan = eans[0];
       }
 
+      console.log('[FLIX] Init (+0ms) SKU:', { mpn, targetMpn, targetEan });
+
       if (!targetMpn && !targetEan) {
         if (!preventRedirectRef.current) {
           redirectToView();
@@ -235,135 +203,140 @@ function FlixmediaPlayerComponent({
         return;
       }
 
-      // Modo embebido (preventRedirect=true): cargar directamente sin verificar match API
-      // Esto es más confiable porque el loader de Flixmedia es más flexible que la API de match
-      if (preventRedirectRef.current) {
+      // Precargar loader.js MIENTRAS se verifica Match API (en paralelo)
+      const preloadLink = document.createElement('link');
+      preloadLink.rel = 'preload';
+      preloadLink.as = 'script';
+      preloadLink.href = '//media.flixfacts.com/js/loader.js';
+      document.head.appendChild(preloadLink);
+
+      // Modo embebido (preventRedirect) o skipMatchApi: cargar loader.js directo sin Match API
+      if (preventRedirectRef.current || skipMatchApiRef.current) {
         setHasContent(true);
-
-        // Esperar un momento para que React renderice el contenedor
-        await new Promise(resolve => setTimeout(resolve, 50));
-
-        const container = document.getElementById(containerId);
-        if (!container) {
-          console.error(`[FLIXMEDIA] ❌ Contenedor ${containerId} no encontrado`);
-          return;
-        }
-
-        // Limpiar solo scripts de ESTE contenedor, no todos
-        const oldScripts = document.querySelectorAll(`script[data-flix-inpage="${containerId}"]`);
-        oldScripts.forEach(s => s.remove());
       } else {
-        // Modo standalone: Verificar si hay contenido con la API de Match
-        // Probar múltiples variantes del MPN (con/sin guiones, barras, etc.)
+        // Verificar si hay contenido con la API de Match
         try {
-          let matchedMpn: string | null = null;
-          let matchData: { event?: string } | null = null;
+          let matched = false;
 
           if (targetMpn) {
-            const mpnVariants = generateMpnVariants(targetMpn);
+            console.log('[FLIX] Verificando Match API para:', targetMpn);
 
-            for (const variant of mpnVariants) {
-              const matchUrl = `https://media.flixcar.com/delivery/webcall/match/${DISTRIBUTOR_ID}/${LANGUAGE}/mpn/${encodeURIComponent(variant)}`;
-
-              try {
-                const response = await fetch(matchUrl);
-                if (!isMounted) return;
-
-                if (response.ok) {
-                  const data = await response.json();
-                  if (data.event === 'matchhit') {
-                    matchedMpn = variant;
-                    matchData = data;
-                    break;
-                  }
-                }
-              } catch {
-                // Continuar con la siguiente variante
-              }
+            const checks: Promise<{ available: boolean }>[] = [
+              checkFlixmediaAvailability(targetMpn)
+            ];
+            if (targetMpn.includes('/')) {
+              const baseMpn = targetMpn.split('/')[0];
+              checks.push(checkFlixmediaAvailability(baseMpn));
             }
-          } else if (targetEan) {
-            // Probar con EAN
-            const matchUrl = `https://media.flixcar.com/delivery/webcall/match/${DISTRIBUTOR_ID}/${LANGUAGE}/ean/${encodeURIComponent(targetEan)}`;
-            const response = await fetch(matchUrl);
+
+            const results = await Promise.all(checks);
             if (!isMounted) return;
 
-            if (response.ok) {
-              const data = await response.json();
-              if (data.event === 'matchhit') {
-                matchData = data;
-              }
+            if (results.some(r => r.available)) {
+              matched = true;
+              setHasContent(true);
+            }
+          } else if (targetEan) {
+            const result = await checkFlixmediaAvailabilityByEan(targetEan);
+            if (!isMounted) return;
+
+            if (result.available) {
+              matched = true;
+              setHasContent(true);
             }
           }
 
-          // Si no encontramos contenido con ninguna variante
-          if (!matchData || matchData.event !== 'matchhit') {
-            setHasContent(false);
-            redirectToView();
-            return;
+          if (!matched) {
+            // No confiar en el negativo del Match API: algunos MPNs (ej: con '/')
+            // no son reconocidos por Match API pero si por loader.js/service.js.
+            // Seguir con loader.js como verificacion definitiva.
+            // El callback NOSHOW o el timeout de 4s manejaran el redirect si realmente no hay contenido.
+            console.log('[FLIX] Match API: sin match -> verificando con loader.js');
           }
-
-          // Usar el MPN que funcionó
-          if (matchedMpn) {
-            targetMpn = matchedMpn;
-          }
-
-          setHasContent(true);
-
-          // Esperar un momento para que React renderice el contenedor
-          await new Promise(resolve => setTimeout(resolve, 10));
-
-          const container = document.getElementById(containerId);
-          if (!container) {
-            console.error(`[FLIXMEDIA] ❌ Contenedor ${containerId} no encontrado`);
-            return;
-          }
-
-          // Limpiar scripts anteriores
-          const oldScripts = document.querySelectorAll('script[data-flix-inpage]');
-          oldScripts.forEach(s => s.remove());
         } catch (error) {
-          console.error('[FLIXMEDIA PLAYER] Error verificando contenido:', error);
-          if (isMounted) {
-            setHasContent(false);
-            redirectToView();
-          }
-          return;
+          if (abortController.signal.aborted || !isMounted) return;
+          console.log('[FLIX] Error de red en Match API -> fallback con loader.js', error);
+          // noshow callback manejara la deteccion de "sin contenido"
         }
       }
 
-      // Continuar con la carga del script (común para ambos modos)
+      // Limpiar estado de Flixmedia antes de cargar nuevo contenido
+      cleanupFlixmedia();
+      if (!isMounted) return;
+
       const container = document.getElementById(containerId);
-      if (!container) {
-        console.error(`[FLIXMEDIA] ❌ Contenedor ${containerId} no encontrado`);
-        return;
-      }
+      if (!container) return;
+      container.innerHTML = '';
 
-      // Configurar callbacks ANTES de cargar el script
-      if (!window.flixJsCallbacks) {
-        window.flixJsCallbacks = {
-          setLoadCallback: () => { },
-          loadService: () => { }
-        };
-      }
+      // Configurar callbacks de Flixmedia ANTES de cargar el script
+      // Segun la guia de integracion, Flixmedia llama setLoadCallback(type) para notificar:
+      // - 'inpage': contenido cargado exitosamente
+      // - 'noshow': no hay contenido disponible (reemplaza el timeout de 2s)
+      // Tambien soporta setLoadCallback(fn, type) como API de registro
+      window.flixJsCallbacks = {
+        setLoadCallback: (typeOrFn: unknown, type?: string) => {
+          const callbackType = typeof typeOrFn === 'string' ? typeOrFn : type;
+          const fn = typeof typeOrFn === 'function' ? typeOrFn : null;
 
-      // Agregar función flixCartClick
+          if (callbackType === 'inpage') {
+            console.log(`[FLIX] Callback INPAGE: contenido listo (+${Math.round(performance.now() - initStartTime)}ms)`);
+            applyStyles();
+            if (isMounted) setHasContent(true);
+          } else if (callbackType === 'noshow') {
+            console.log(`[FLIX] Callback NOSHOW: sin contenido (+${Math.round(performance.now() - initStartTime)}ms)`);
+            if (!isMounted) return;
+            observer?.disconnect();
+            setHasContent(false);
+            setHasFlixError(true);
+            if (!preventRedirectRef.current) redirectToView();
+          }
+
+          if (fn) fn();
+        },
+        loadService: () => {}
+      };
+
+      // Callback para boton de carrito de Flixmedia
       (window as typeof window & { flixJsCallbacks: { flixCartClick?: () => void } }).flixJsCallbacks.flixCartClick = () => {
         const currentSegmento = segmentoRef.current;
         const currentProductId = productIdRef.current;
         const isPremiumSegment = currentSegmento && (Array.isArray(currentSegmento) ? currentSegmento[0] : currentSegmento)?.toUpperCase() === 'PREMIUM';
-        const hasPremium = hasPremiumContent();
+        const hasPremium = hasPremiumContentCheck();
         const route = (isPremiumSegment || hasPremium)
           ? `/productos/viewpremium/${currentProductId}`
           : `/productos/view/${currentProductId}`;
-        router.push(route);
+        routerRef.current.push(route);
       };
 
-      // Configurar callback de renderizado
-      window.flixJsCallbacks.setLoadCallback(() => {
-        applyStyles();
-      }, "inpage");
+      // Verificar si hay error de Flixmedia (fondo azul, texto de error)
+      const checkForFlixError = () => {
+        const cont = document.getElementById(containerId);
+        if (!cont) return false;
+        const text = cont.textContent?.toLowerCase() || '';
+        const hasErrorText = text.includes('producto no encontrado') ||
+                            text.includes('no se pudo cargar') ||
+                            text.includes('product not found') ||
+                            text.includes('no content available');
+        const hasBlueBackground = cont.innerHTML.includes('17407A') ||
+                                 cont.innerHTML.includes('rgb(23, 64, 122)');
+        return hasErrorText || hasBlueBackground;
+      };
 
-      // Crear script siguiendo el método del PDF (Sección 1b - Alternative Implementation)
+      // MutationObserver SOLO para deteccion de errores visuales (fondo azul)
+      // La deteccion de contenido/no-contenido la manejan los callbacks inpage/noshow
+      observer = new MutationObserver(() => {
+        if (!isMounted) { observer?.disconnect(); return; }
+        if (checkForFlixError()) {
+          console.log('[FLIX] Error visual de Flixmedia detectado -> redirigiendo');
+          observer?.disconnect();
+          setHasFlixError(true);
+          if (!preventRedirectRef.current) redirectToView();
+        }
+      });
+      observer.observe(container, { childList: true, subtree: true, attributes: true });
+
+      // Cargar loader.js
+      console.log(`[FLIX] Cargando loader.js MPN: ${targetMpn} (+${Math.round(performance.now() - initStartTime)}ms)`);
       const script = document.createElement("script");
       script.type = "text/javascript";
       script.async = true;
@@ -372,117 +345,105 @@ function FlixmediaPlayerComponent({
       script.setAttribute("data-flix-brand", "Samsung");
       script.setAttribute("data-flix-mpn", targetMpn || "");
       script.setAttribute("data-flix-ean", targetEan || "");
+      script.setAttribute("data-flix-sku", "");
       script.setAttribute("data-flix-inpage", containerId);
       script.setAttribute("data-flix-button", "");
+      script.setAttribute("data-flix-button-image", "");
       script.setAttribute("data-flix-price", "");
-
-      // Función para verificar si hay error de Flixmedia
-      const checkForFlixError = () => {
-        const cont = document.getElementById(containerId);
-        if (!cont) return false;
-
-        // Verificar texto de error
-        const text = cont.textContent?.toLowerCase() || '';
-        const hasErrorText = text.includes('producto no encontrado') ||
-                            text.includes('no se pudo cargar') ||
-                            text.includes('product not found') ||
-                            text.includes('no content available');
-
-        // Verificar fondo azul característico de Flixmedia error (#17407A)
-        const hasBlueBackground = cont.innerHTML.includes('17407A') ||
-                                 cont.innerHTML.includes('rgb(23, 64, 122)');
-
-        return hasErrorText || hasBlueBackground;
-      };
-
+      script.setAttribute("data-flix-fallback-language", "");
       script.onload = () => {
+        console.log(`[FLIX] loader.js listo (+${Math.round(performance.now() - initStartTime)}ms)`);
         applyStyles();
 
-        // MutationObserver para detectar errores inyectados por Flixmedia
-        const cont = document.getElementById(containerId);
-        if (cont) {
-          const observer = new MutationObserver(() => {
-            if (checkForFlixError()) {
-              observer.disconnect();
+        // Tambien intentar registrar callbacks con la API de Flixmedia (por si usa registro)
+        // Esto es un safety net: si Flixmedia reemplazo flixJsCallbacks con su propia impl
+        try {
+          if (window.flixJsCallbacks && typeof window.flixJsCallbacks.setLoadCallback === 'function') {
+            window.flixJsCallbacks.setLoadCallback(() => {
+              console.log(`[FLIX] Registered INPAGE callback fired (+${Math.round(performance.now() - initStartTime)}ms)`);
+              applyStyles();
+                if (isMounted) setHasContent(true);
+            }, 'inpage');
+            window.flixJsCallbacks.setLoadCallback(() => {
+              console.log(`[FLIX] Registered NOSHOW callback fired (+${Math.round(performance.now() - initStartTime)}ms)`);
+              if (!isMounted) return;
+              observer?.disconnect();
+              setHasContent(false);
               setHasFlixError(true);
-              if (!preventRedirectRef.current) {
-                redirectToView();
-              }
-            }
-          });
-
-          observer.observe(cont, {
-            childList: true,
-            subtree: true,
-            characterData: true,
-            attributes: true
-          });
-
-          // También verificar después de un tiempo por si acaso
-          setTimeout(() => {
-            if (checkForFlixError()) {
-              observer.disconnect();
-              setHasFlixError(true);
-              if (!preventRedirectRef.current) {
-                redirectToView();
-              }
-            }
-          }, 2000);
-        }
+              if (!preventRedirectRef.current) redirectToView();
+            }, 'noshow');
+          }
+        } catch { /* flixJsCallbacks may have been replaced */ }
       };
-
+      script.onerror = () => {
+        console.log('[FLIX] Error cargando loader.js -> redirigiendo');
+        if (!isMounted) return;
+        setHasContent(false);
+        if (!preventRedirectRef.current) redirectToView();
+      };
       script.src = "//media.flixfacts.com/js/loader.js";
       document.head.appendChild(script);
+
+      // Verificar si loader.js renderizo contenido multimedia real
+      const hasRealContent = (cont: HTMLElement): boolean => {
+        if (cont.children.length === 0) return false;
+        return cont.querySelector('iframe') !== null ||
+               cont.querySelectorAll('img').length > 1 ||
+               cont.querySelector('video') !== null ||
+               cont.querySelector('[class*="flix-"]') !== null;
+      };
+
+      // Verificacion a los 4s: si loader.js cargo pero no renderizo contenido real -> redirigir
+      // Esto cubre el caso donde ni inpage ni noshow callbacks se disparan
+      setTimeout(() => {
+        if (!isMounted) return;
+        const cont = document.getElementById(containerId);
+        if (!cont) return;
+
+        if (checkForFlixError() || !hasRealContent(cont)) {
+          console.log('[FLIX] Sin contenido real despues de 4s -> redirigiendo', {
+            children: cont.children.length,
+            innerHTML_length: cont.innerHTML.length,
+            hasIframe: !!cont.querySelector('iframe'),
+            hasImages: cont.querySelectorAll('img').length,
+          });
+          observer?.disconnect();
+          setHasContent(false);
+          setHasFlixError(true);
+          if (!preventRedirectRef.current) redirectToView();
+        }
+      }, 4000);
     };
 
-    init();
+    // Siempre limpiar y re-inicializar. No intentar "reutilizar" contenido existente:
+    // - Los scripts de Flixmedia inyectan wrappers vacios que pasan selectores DOM pero no tienen contenido visible
+    // - Al navegar de vuelta al mismo producto, el container tiene elementos rotos de scripts viejos
+    // - StrictMode solo corre en dev: el flash es cosmetico, el bug de contenido roto es funcional
+    // El setTimeout(0) sigue siendo necesario: en StrictMode, mount 1 encola el timeout,
+    // cleanup lo cancela, mount 2 encola uno nuevo que si ejecuta. Solo se ejecuta UNA init().
+    initTimeoutId = setTimeout(() => {
+      cleanupFlixmedia();
+      init();
+    }, 0);
 
     return () => {
       isMounted = false;
-      // Solo limpiar scripts de ESTE contenedor específico
-      const scripts = document.querySelectorAll(`script[data-flix-inpage="${containerId}"]`);
-      scripts.forEach(s => s.remove());
-      // Limpiar el contenedor
-      const container = document.getElementById(containerId);
-      if (container) {
-        container.innerHTML = '';
-      }
-      // NO limpiar estado global para no interferir con otros componentes Flixmedia
+      if (initTimeoutId) clearTimeout(initTimeoutId);
+      abortController.abort();
+      observer?.disconnect();
     };
-  }, [mpn, ean, containerId, applyStyles, redirectToView, router, hasPremiumContent]);
+  // Re-ejecutar cuando mpn o productId cambian.
+  // NO incluir ean: cuando la API carga, ean pasa de null a un valor real para el MISMO producto,
+  // lo que dispararia una segunda init que destruye el contenido ya cargado.
+  // productId cubre cambios de producto. mpn cubre cambios de SKU dentro del mismo producto.
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [mpn, productId]);
 
-  if (!mpn && !ean) {
-    if (preventRedirect) {
-      return (
-        <div className={`${className} w-full min-h-[200px] flex items-center justify-center bg-gray-50 rounded-lg`}>
-          <p className="text-gray-400 text-sm">Contenido multimedia no disponible para este producto</p>
-        </div>
-      );
-    }
-    return null;
-  }
+  // Sin contenido: no renderizar nada (ni mensaje)
+  if (!mpn && !ean) return null;
+  if (hasContent === false || hasFlixError) return null;
 
-  // Mientras verifica, mostrar div vacío (sin skeleton para cargar más rápido)
-  if (hasContent === null) {
-    return (
-      <div className={`${className} w-full min-h-[200px] relative`} />
-    );
-  }
-
-  // Si no hay contenido o hay error de Flixmedia
-  if (hasContent === false || hasFlixError) {
-    // Si preventRedirect está activo, mostrar placeholder
-    if (preventRedirect) {
-      return (
-        <div className={`${className} w-full min-h-[200px] flex items-center justify-center bg-gray-50 rounded-lg`}>
-          <p className="text-gray-400 text-sm">Contenido multimedia no disponible para este producto</p>
-        </div>
-      );
-    }
-    // Si no, no renderizar nada (ya está redirigiendo)
-    return null;
-  }
-
+  // Renderizar container - visible cuando hay contenido o aun cargando (null)
   return (
     <div className={`${className} w-full min-h-[200px] relative`}>
       <div
@@ -494,9 +455,13 @@ function FlixmediaPlayerComponent({
 }
 
 const FlixmediaPlayer = memo(FlixmediaPlayerComponent, (prevProps, nextProps) => {
+  // Solo comparar mpn y productId (los deps del effect) + flags de comportamiento.
+  // NO incluir ean: cambia de null->valor cuando la API carga, pero es el mismo producto.
+  // Incluirlo causa re-render innecesario que puede interferir con Flixmedia.
   return prevProps.mpn === nextProps.mpn &&
-         prevProps.ean === nextProps.ean &&
-         prevProps.preventRedirect === nextProps.preventRedirect;
+         prevProps.productId === nextProps.productId &&
+         prevProps.preventRedirect === nextProps.preventRedirect &&
+         prevProps.skipMatchApi === nextProps.skipMatchApi;
 });
 
 FlixmediaPlayer.displayName = "FlixmediaPlayer";
