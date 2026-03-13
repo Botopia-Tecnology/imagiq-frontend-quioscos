@@ -6,7 +6,7 @@ Este es un e-commerce de gran escala desarrollado con Next.js 14, TypeScript y i
 
 ### 📁 Estructura del Proyecto
 
-```
+``` 
 src/
 ├── app/                     # App Router de Next.js
 │   ├── layout.tsx          # Layout principal
