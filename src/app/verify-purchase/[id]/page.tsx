@@ -7,7 +7,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:3001";
 const MAX_RETRY_ATTEMPTS = 5;
 const KIOSK_POLL_INTERVAL = 20;
-const KIOSK_TOTAL_SECONDS = 600;
+const KIOSK_TOTAL_SECONDS = 1200;
 
 export default function VerifyPurchase(props: Readonly<{ params: Readonly<Promise<{ id: string }>>; }>) {
   const { params } = props;
@@ -23,6 +23,7 @@ export default function VerifyPurchase(props: Readonly<{ params: Readonly<Promis
   const kioskPollRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   const isKiosk = searchParams.get("from") === "kiosk";
+  const serialParam = searchParams.get("serial");
 
   useEffect(() => {
     params.then(({ id }) => {
@@ -164,6 +165,14 @@ export default function VerifyPurchase(props: Readonly<{ params: Readonly<Promis
         {/* Overlay: timer + cancel — appears after animation finishes */}
         {kioskPolling && (
           <div className="fixed bottom-12 left-0 right-0 z-[60] flex flex-col items-center gap-4">
+            {serialParam && (
+              <div className="flex flex-col items-center mb-2">
+                <p className="text-white/40 text-sm mb-1">Orden</p>
+                <p className="text-white/70 text-2xl md:text-3xl font-mono font-bold tracking-wider">
+                  {serialParam}
+                </p>
+              </div>
+            )}
             <div className="flex flex-col items-center">
               <p className="text-white/40 text-sm mb-1">Tiempo restante</p>
               <p className="text-white/70 text-4xl md:text-5xl font-mono font-bold tracking-wider">

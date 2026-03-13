@@ -1874,7 +1874,7 @@ export default function Step7({ onBack }: Step7Props) {
 
             // Go directly to verify-purchase with countdown timer
             setIsProcessing(false);
-            router.push(`/verify-purchase/${processRes.orderId}?from=kiosk`);
+            router.push(`/verify-purchase/${processRes.orderId}?from=kiosk&serial=${encodeURIComponent(processRes.serialId)}`);
             break;
           }
 
