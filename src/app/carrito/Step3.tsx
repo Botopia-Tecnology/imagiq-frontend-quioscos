@@ -1067,6 +1067,11 @@ export default function Step3({
         return;
       }
 
+      // IMPORTANTE: Guardar la dirección actual en checkout-address para que Step7 la encuentre
+      if (address && globalThis.window !== undefined) {
+        globalThis.window.localStorage.setItem("checkout-address", JSON.stringify(address));
+      }
+
       // IMPORTANTE: Verificar y guardar el método de entrega en localStorage antes de continuar
       if (globalThis.window !== undefined) {
         const currentMethod = globalThis.window.localStorage.getItem("checkout-delivery-method");
@@ -1204,6 +1209,11 @@ export default function Step3({
       }, 100);
 
       return;
+    }
+
+    // IMPORTANTE: Guardar la dirección actual en checkout-address para que Step7 la encuentre
+    if (address && globalThis.window !== undefined) {
+      globalThis.window.localStorage.setItem("checkout-address", JSON.stringify(address));
     }
 
     // IMPORTANTE: Verificar y guardar el método de entrega en localStorage antes de continuar
