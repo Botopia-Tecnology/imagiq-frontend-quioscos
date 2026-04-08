@@ -39,8 +39,8 @@ import SecurityInitializer from "@/components/security/SecurityInitializer";
 export const metadata: Metadata = {
   metadataBase: new URL("https://imagiq.com"),
   title: {
-    default: "Imagiq - Distribuidor Oficial Samsung Colombia",
-    template: "%s | Imagiq Samsung Store",
+    default: "Samsung Store - iMagiQ Colombia",
+    template: "%s | Samsung Store",
   },
   description:
     "Imagiq - Distribuidor oficial de Samsung en Colombia. Encuentra los últimos Galaxy, tablets, wearables y electrodomésticos con garantía oficial. Envío gratis, soporte especializado y las mejores promociones.",
@@ -57,8 +57,8 @@ export const metadata: Metadata = {
     "tienda Samsung Colombia",
   ],
   authors: [{ name: "Imagiq Team", url: "https://imagiq.com" }],
-  creator: "Imagiq Store",
-  publisher: "Imagiq Store",
+  creator: "Samsung Store",
+  publisher: "Samsung Store",
   formatDetection: {
     email: false,
     address: false,
@@ -79,8 +79,8 @@ export const metadata: Metadata = {
     type: "website",
     locale: "es_CO",
     url: "https://imagiq.com",
-    siteName: "Imagiq Samsung Store",
-    title: "Imagiq - Distribuidor Oficial Samsung Colombia",
+    siteName: "Samsung Store",
+    title: "Samsung Store",
     description:
       "Distribuidor oficial de Samsung en Colombia. Galaxy, tablets, wearables y electrodomésticos con garantía oficial.",
     images: [
@@ -88,7 +88,7 @@ export const metadata: Metadata = {
         url: "/logo-og.png",
         width: 1200,
         height: 630,
-        alt: "Imagiq Store Logo",
+        alt: "Samsung Store Logo",
       },
     ],
   },
@@ -150,6 +150,19 @@ export default function RootLayout({
         <link rel="preconnect" href="https://media.flixfacts.com" crossOrigin="anonymous" />
         <link rel="preconnect" href="https://media.flixcar.com" crossOrigin="anonymous" />
         <link rel="preload" href="//media.flixfacts.com/js/loader.js" as="script" />
+        {/* JSON-LD: WebSite — controls site name in Google SERPs (especially mobile) */}
+        <script
+          type="application/ld+json"
+          dangerouslySetInnerHTML={{
+            __html: JSON.stringify({
+              "@context": "https://schema.org",
+              "@type": "WebSite",
+              name: "Samsung Store",
+              alternateName: ["Samsung Store iMagiQ", "Samsung Store Colombia"],
+              url: "https://imagiq.com",
+            }),
+          }}
+        />
       </head>
       <body className="antialiased">
         <SecurityInitializer>
