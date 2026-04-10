@@ -584,6 +584,7 @@ export default function AddNewAddressForm({
         nombreCalle: formData.nombreCalle || undefined,
         numeroPrincipal: formData.numeroPrincipal || undefined,
         numeroSecundario: formData.numeroSecundario || undefined,
+        numeroComplementario: formData.numeroComplementario || undefined,
         barrio: formData.barrio || undefined,
         setsReferencia: formData.setsReferencia || undefined,
         // IMPORTANTE: Mapear setsReferencia a complemento para el backend
@@ -670,6 +671,7 @@ export default function AddNewAddressForm({
           nombreCalle: formData.nombreCalleFacturacion || undefined,
           numeroPrincipal: formData.numeroPrincipalFacturacion || undefined,
           numeroSecundario: formData.numeroSecundarioFacturacion || undefined,
+          numeroComplementario: formData.numeroComplementarioFacturacion || undefined,
           barrio: formData.barrioFacturacion || undefined,
           setsReferencia: formData.setsReferenciaFacturacion || undefined,
           // IMPORTANTE: Mapear setsReferencia a complemento para el backend
@@ -704,7 +706,7 @@ export default function AddNewAddressForm({
             id: shippingResponse.id,
             usuario_id: shippingResponse.usuarioId || '',
             email: userEmail,
-            linea_uno: shippingResponse.direccionFormateada || shippingResponse.lineaUno || '',
+            linea_uno: shippingResponse.lineaUno || shippingResponse.direccionFormateada || '',
             direccionFormateada: shippingResponse.direccionFormateada || '',
             lineaUno: shippingResponse.lineaUno || '',
             codigo_dane: shippingResponse.codigo_dane || '',

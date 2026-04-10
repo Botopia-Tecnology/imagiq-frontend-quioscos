@@ -320,7 +320,7 @@ export default function Step7({ onBack }: Step7Props) {
                 id: defaultAddress.id,
                 usuario_id: defaultAddress.usuarioId || "",
                 email: "",
-                linea_uno: defaultAddress.direccionFormateada || defaultAddress.lineaUno || "",
+                linea_uno: defaultAddress.lineaUno || defaultAddress.direccionFormateada || "",
                 codigo_dane: defaultAddress.codigo_dane || "",
                 ciudad: defaultAddress.ciudad || "",
                 pais: defaultAddress.pais || "Colombia",
