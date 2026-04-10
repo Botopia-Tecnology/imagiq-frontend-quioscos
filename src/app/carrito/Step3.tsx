@@ -1157,7 +1157,7 @@ export default function Step3({
           id: address.id,
           usuario_id: address.usuarioId || "",
           email: "",
-          linea_uno: address.direccionFormateada || address.lineaUno || "",
+          linea_uno: address.lineaUno || address.direccionFormateada || "",
           direccionFormateada: address.direccionFormateada || "",
           lineaUno: address.lineaUno || "",
           codigo_dane: address.codigo_dane || "",
