@@ -1,6 +1,20 @@
 "use client";
 import { AddiPaymentData, CardPaymentData, PsePaymentData, CheckZeroInterestRequest, CheckZeroInterestResponse } from "../types";
 import { apiPost, apiGet } from "@/lib/api-client";
+import posthog from "posthog-js";
+
+/** Get PostHog session tracking IDs (safe - returns empty strings if unavailable) */
+export function getPostHogIds() {
+  try {
+    if (typeof window !== "undefined" && posthog.__loaded) {
+      return {
+        posthogSessionId: posthog.get_session_id?.() || "",
+        posthogDistinctId: posthog.get_distinct_id?.() || "",
+      };
+    }
+  } catch { /* PostHog not available */ }
+  return { posthogSessionId: "", posthogDistinctId: "" };
+}
 
 export type KioskEmailSentResponse = {
   kioskEmailSent: boolean;
@@ -80,7 +94,7 @@ export async function payWithPse(props: PsePaymentData): Promise<{ redirectUrl: 
  * Kiosk mode: Creates PSE payment and sends bank redirect link to customer's email
  */
 export async function kioskPayWithPse(
-  props: PsePaymentData & { kioskCustomerEmail: string; kioskCustomerPhone?: string; previousOrderId?: string; kioskStoreId?: string }
+  props: PsePaymentData & { kioskCustomerEmail: string; kioskCustomerPhone?: string; previousOrderId?: string; kioskStoreId?: string; posthogSessionId?: string; posthogDistinctId?: string }
 ): Promise<KioskEmailSentResponse | { error: string; message: string }> {
   try {
     const data = await apiPost<KioskEmailSentResponse>('/api/payments/kiosk/pse', props);
@@ -98,7 +112,7 @@ export async function kioskPayWithPse(
  * Kiosk mode: Creates Addi application and sends redirect link to customer's email
  */
 export async function kioskPayWithAddi(
-  props: AddiPaymentData & { kioskCustomerEmail: string; kioskCustomerPhone?: string; previousOrderId?: string; kioskStoreId?: string }
+  props: AddiPaymentData & { kioskCustomerEmail: string; kioskCustomerPhone?: string; previousOrderId?: string; kioskStoreId?: string; posthogSessionId?: string; posthogDistinctId?: string }
 ): Promise<KioskEmailSentResponse | { error: string; message: string }> {
   try {
     const data = await apiPost<KioskEmailSentResponse>('/api/payments/kiosk/addi', props);
