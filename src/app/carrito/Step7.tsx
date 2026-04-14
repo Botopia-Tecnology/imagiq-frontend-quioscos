@@ -22,7 +22,7 @@ import { toast } from "sonner";
 import { DBCard, DecryptedCardData } from "@/features/profile/types";
 import { encryptionService } from "@/lib/encryption";
 import CardBrandLogo from "@/components/ui/CardBrandLogo";
-import { payWithAddi, payWithCard, payWithPse, fetchBanks, kioskPayWithPse, kioskPayWithAddi, kioskCreateDatafonoOrder, kioskConfirmDatafono, kioskProcessDatafono } from "./utils";
+import { payWithAddi, payWithCard, payWithPse, fetchBanks, kioskPayWithPse, kioskPayWithAddi, kioskCreateDatafonoOrder, kioskConfirmDatafono, kioskProcessDatafono, getPostHogIds } from "./utils";
 import { useCart } from "@/hooks/useCart";
 import { useCardsCache } from "./hooks/useCardsCache";
 import { useDelivery } from "./hooks/useDelivery";
@@ -1861,6 +1861,7 @@ export default function Step7({ onBack }: Step7Props) {
               informacion_facturacion,
               beneficios: buildBeneficios(),
               kioskStoreId: authContext.user?.id || loggedUser?.id || "",
+              ...getPostHogIds(),
             };
 
             const processRes = await kioskProcessDatafono(datafonoPayload);
@@ -2053,6 +2054,7 @@ export default function Step7({ onBack }: Step7Props) {
               })(),
               previousOrderId: kioskPaymentLinkSent?.orderId,
               kioskStoreId: authContext.user?.id || loggedUser?.id || "",
+              ...getPostHogIds(),
             });
             if ("error" in kioskRes) {
               setError(kioskRes.message);
@@ -2146,6 +2148,7 @@ export default function Step7({ onBack }: Step7Props) {
               })(),
               previousOrderId: kioskPaymentLinkSent?.orderId,
               kioskStoreId: authContext.user?.id || loggedUser?.id || "",
+              ...getPostHogIds(),
             });
             if ("error" in kioskRes) {
               setError(kioskRes.message);
@@ -2217,6 +2220,7 @@ export default function Step7({ onBack }: Step7Props) {
             informacion_facturacion,
             beneficios: buildBeneficios(),
             kioskStoreId: authContext.user?.id || loggedUser?.id || "",
+            ...getPostHogIds(),
           };
 
           console.log("🏪 [Step7] Creando orden Datafono/Efectivo...");
