@@ -128,6 +128,7 @@ export const posthogConfig = {
   disable_session_recording: false,
   enable_recording_console_log: false,
   advanced_disable_decide: false,
+  capture_heatmaps: true,
 };
 
 // Inicialización del SDK de PostHog
