@@ -123,10 +123,11 @@ async function getValidSlugs(): Promise<Set<string>> {
 export async function middleware(request: NextRequest) {
   const { pathname } = request.nextUrl;
 
-  // Excluir archivos estáticos y API
+  // Excluir archivos estáticos, API y el proxy de PostHog (/ingest)
   if (
     pathname.startsWith("/_next") ||
     pathname.startsWith("/api") ||
+    pathname.startsWith("/ingest") ||
     pathname.startsWith("/static") ||
     pathname.includes(".")
   ) {
