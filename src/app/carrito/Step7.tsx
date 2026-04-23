@@ -160,6 +160,7 @@ export default function Step7({ onBack }: Step7Props) {
   const [kioskPaymentLinkSent, setKioskPaymentLinkSent] = useState<{
     email: string;
     orderId?: string;
+    serialId?: string;
     whatsappSent?: boolean;
     clientData?: Record<string, any>;
   } | null>(() => {
@@ -2063,6 +2064,7 @@ export default function Step7({ onBack }: Step7Props) {
             const pseKioskState = {
               email: kioskRes.email,
               orderId: kioskRes.orderId,
+              serialId: kioskRes.serialId,
               whatsappSent: kioskRes.kioskWhatsappSent,
               clientData: kioskClientPse,
             };
@@ -2157,6 +2159,7 @@ export default function Step7({ onBack }: Step7Props) {
             const addiKioskState = {
               email: kioskRes.email,
               orderId: kioskRes.orderId,
+              serialId: kioskRes.serialId,
               whatsappSent: kioskRes.kioskWhatsappSent,
               clientData: kioskClientAddi,
             };
@@ -2509,7 +2512,15 @@ export default function Step7({ onBack }: Step7Props) {
               </svg>
             </div>
             <h2 className="text-2xl font-bold text-gray-900 mb-2">¡Pago confirmado!</h2>
-            <p className="text-gray-600 mb-8">El cliente completó el pago exitosamente.</p>
+            <p className="text-gray-600 mb-4">El cliente completó el pago exitosamente.</p>
+            {kioskPaymentLinkSent?.serialId && (
+              <div className="bg-green-50 border-2 border-green-300 rounded-lg p-4 mb-6">
+                <p className="text-xs text-green-700 font-medium">N° de orden</p>
+                <p className="text-2xl font-bold text-green-900 tracking-wide">
+                  {kioskPaymentLinkSent.serialId}
+                </p>
+              </div>
+            )}
             <button
               onClick={handleOrderApprovedContinue}
               className="w-full bg-black text-white font-bold py-3 px-6 rounded-xl text-lg hover:bg-gray-800 transition-colors"
@@ -3225,26 +3236,36 @@ export default function Step7({ onBack }: Step7Props) {
                 }}
               />
             ) : (
-              <Step4OrderSummary
-                isProcessing={isProcessing || isResending}
-                onFinishPayment={kioskPaymentLinkSent ? handleKioskResendLink : handleConfirmOrder}
-                onBack={kioskPaymentLinkSent ? handleKioskFinalize : onBack}
-                backText={kioskPaymentLinkSent ? "Finalizar orden" : "Volver"}
-                buttonText={kioskPaymentLinkSent ? (isResending ? "Reenviando..." : (resendCooldown > 0 ? `Reenviar link (${resendCooldown}s)` : "Reenviar link")) : (isKioskMode && paymentData?.method === "tarjeta" ? "Confirmar orden y proceder al pago" : (isKioskMode ? "Enviar link de pago" : "Confirmar y pagar"))}
-                buttonVariant="green"
-                disabled={kioskPaymentLinkSent ? (isResending || resendCooldown > 0) : (isProcessing || isResending || isValidatingTradeIn || !tradeInValidation.isValid)}
-                isSticky={true}
-                shippingVerification={shippingVerification}
-                deliveryMethod={shippingData?.type}
-                error={error}
-                shouldCalculateCanPickUp={false}
-                debugStoresInfo={{
-                  availableStoresWhenCanPickUpFalse: availableStoresWhenCanPickUpFalse.length,
-                  stores: stores.length,
-                  filteredStores: filteredStores.length,
-                  availableCities: availableCities.length,
-                }}
-              />
+              <>
+                {kioskPaymentLinkSent?.serialId && (
+                  <div className="bg-green-50 border-2 border-green-300 rounded-lg p-3 mb-3 text-center">
+                    <p className="text-xs text-green-700 font-medium">N° de orden</p>
+                    <p className="text-xl font-bold text-green-900 tracking-wide">
+                      {kioskPaymentLinkSent.serialId}
+                    </p>
+                  </div>
+                )}
+                <Step4OrderSummary
+                  isProcessing={isProcessing || isResending}
+                  onFinishPayment={kioskPaymentLinkSent ? handleKioskResendLink : handleConfirmOrder}
+                  onBack={kioskPaymentLinkSent ? handleKioskFinalize : onBack}
+                  backText={kioskPaymentLinkSent ? "Finalizar orden" : "Volver"}
+                  buttonText={kioskPaymentLinkSent ? (isResending ? "Reenviando..." : (resendCooldown > 0 ? `Reenviar link (${resendCooldown}s)` : "Reenviar link")) : (isKioskMode && paymentData?.method === "tarjeta" ? "Confirmar orden y proceder al pago" : (isKioskMode ? "Enviar link de pago" : "Confirmar y pagar"))}
+                  buttonVariant="green"
+                  disabled={kioskPaymentLinkSent ? (isResending || resendCooldown > 0) : (isProcessing || isResending || isValidatingTradeIn || !tradeInValidation.isValid)}
+                  isSticky={true}
+                  shippingVerification={shippingVerification}
+                  deliveryMethod={shippingData?.type}
+                  error={error}
+                  shouldCalculateCanPickUp={false}
+                  debugStoresInfo={{
+                    availableStoresWhenCanPickUpFalse: availableStoresWhenCanPickUpFalse.length,
+                    stores: stores.length,
+                    filteredStores: filteredStores.length,
+                    availableCities: availableCities.length,
+                  }}
+                />
+              </>
             )}
             {/* Información del método de envío - Solo se muestra cuando NEXT_PUBLIC_SHOW_PRODUCT_CODES es true */}
             {process.env.NEXT_PUBLIC_SHOW_PRODUCT_CODES === "true" && (
@@ -3437,6 +3458,11 @@ export default function Step7({ onBack }: Step7Props) {
             {productSavings > 0 && (
               <p className="text-sm text-green-600 font-medium">
                 -$ {Number(productSavings).toLocaleString()} desc.
+              </p>
+            )}
+            {kioskPaymentLinkSent?.serialId && (
+              <p className="text-sm text-green-700 font-semibold mt-1">
+                N° de orden: <span className="font-bold">{kioskPaymentLinkSent.serialId}</span>
               </p>
             )}
           </div>

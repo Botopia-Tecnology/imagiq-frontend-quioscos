@@ -21,6 +21,7 @@ export type KioskEmailSentResponse = {
   kioskWhatsappSent: boolean;
   email: string;
   orderId: string;
+  serialId: string;
 };
 
 export async function payWithAddi(
