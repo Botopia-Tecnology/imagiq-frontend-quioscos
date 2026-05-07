@@ -232,6 +232,58 @@ export async function kioskCancelDatafonoPayment(
   }
 }
 
+/**
+ * Kiosk V2: webhook-driven datafono/tarjeta flow.
+ * Creates the order, posts to Novasoft without guides/payment, returns
+ * immediately. The kiosk frontend then waits for `order_approved` over the
+ * /kiosk websocket — that event fires when WSiMagiQ posts a billing webhook
+ * and the backend marks the order APPROVED + generates Coordinadora guides.
+ */
+export async function kioskProcessDatafonoV2(
+  props: Record<string, any>
+): Promise<
+  | { orderId: string; serialId: string; novasoftPosted: boolean }
+  | { error: string; message: string }
+> {
+  try {
+    const data = await apiPost<{ orderId: string; serialId: string; novasoftPosted: boolean }>(
+      '/api/payments/kiosk/datafono/v2/process',
+      props,
+    );
+    return data;
+  } catch (error) {
+    console.error("Error processing V2 kiosk datafono order:", error);
+    if (error instanceof Error) {
+      return { error: "process_failed", message: error.message || "Failed to process V2 datafono order" };
+    }
+    return { error: "network_error", message: "Error de conexión al procesar la orden" };
+  }
+}
+
+/**
+ * Kiosk V2: cancel a pending V2 datafono order.
+ * Marks the order CANCELLED. Guides typically don't exist yet so this is just
+ * an UPDATE. If the billing webhook arrives after a cancel, the user's rule
+ * "webhook gana" applies — see markBilledAndGenerateGuides on the backend.
+ */
+export async function kioskCancelDatafonoV2(
+  orderId: string,
+): Promise<{ orderId: string; status: string; serialId?: string } | { error: string; message: string }> {
+  try {
+    const data = await apiPost<{ orderId: string; status: string; serialId?: string }>(
+      `/api/payments/kiosk/datafono/v2/cancel/${orderId}`,
+      {},
+    );
+    return data;
+  } catch (error) {
+    console.error("Error cancelling V2 kiosk datafono order:", error);
+    if (error instanceof Error) {
+      return { error: "cancel_failed", message: error.message || "Failed to cancel V2 datafono order" };
+    }
+    return { error: "network_error", message: "Error de conexión al cancelar la orden" };
+  }
+}
+
 export async function fetchBanks(): Promise<{ bankCode: string; bankName: string }[]> {
   try {
     const data = await apiGet<{ bankCode: string; bankName: string }[]>('/api/payments/epayco/banks');
