@@ -1,12 +1,12 @@
 "use client";
 import LogoReloadAnimation from "@/app/carrito/LogoReloadAnimation";
-import { kioskCancelDatafonoPayment } from "@/app/carrito/utils";
+import { kioskCancelDatafonoV2 } from "@/app/carrito/utils";
+import { connectKioskSocket, disconnectKioskSocket } from "@/lib/kiosk-socket";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useCallback, useEffect, useRef, useState } from "react";
 
 const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:3001";
 const MAX_RETRY_ATTEMPTS = 5;
-const KIOSK_POLL_INTERVAL = 20;
 const KIOSK_TOTAL_SECONDS = 1200;
 
 export default function VerifyPurchase(props: Readonly<{ params: Readonly<Promise<{ id: string }>>; }>) {
@@ -15,12 +15,13 @@ export default function VerifyPurchase(props: Readonly<{ params: Readonly<Promis
   const router = useRouter();
   const searchParams = useSearchParams();
   const [isLoading, setIsLoading] = useState(true);
-  const [kioskPolling, setKioskPolling] = useState(false);
+  const [kioskWaiting, setKioskWaiting] = useState(false);
   const [secondsLeft, setSecondsLeft] = useState(KIOSK_TOTAL_SECONDS);
   const retryCountRef = useRef(0);
   const [isCancelling, setIsCancelling] = useState(false);
   const kioskTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
-  const kioskPollRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const navigatedRef = useRef(false);
+  const socketCleanupRef = useRef<(() => void) | null>(null);
 
   const isKiosk = searchParams.get("from") === "kiosk";
   const serialParam = searchParams.get("serial");
@@ -31,13 +32,21 @@ export default function VerifyPurchase(props: Readonly<{ params: Readonly<Promis
     });
   }, [params]);
 
-  // Cleanup intervals on unmount
+  // Cleanup on unmount: clear timer, detach socket listeners, leave socket.
+  // The socket itself is a singleton so we only disconnect when this page
+  // unmounts to avoid keeping an idle connection open after the kiosk
+  // navigates away. Detaching the listeners first prevents stale handlers
+  // from firing if the socket gets re-used by another page mount.
   useEffect(() => {
     return () => {
       if (kioskTimerRef.current) clearInterval(kioskTimerRef.current);
-      if (kioskPollRef.current) clearInterval(kioskPollRef.current);
+      if (socketCleanupRef.current) {
+        socketCleanupRef.current();
+        socketCleanupRef.current = null;
+      }
+      if (isKiosk) disconnectKioskSocket();
     };
-  }, []);
+  }, [isKiosk]);
 
   const formatTime = (totalSeconds: number) => {
     const mins = Math.floor(totalSeconds / 60);
@@ -45,31 +54,12 @@ export default function VerifyPurchase(props: Readonly<{ params: Readonly<Promis
     return `${mins}:${secs.toString().padStart(2, "0")}`;
   };
 
-  // Kiosk polling: single check — now also returns serialId for rejected
-  const kioskVerifyOnce = useCallback(async (): Promise<{ result: "approved" | "rejected" | "pending" | "error"; serialId?: string }> => {
-    if (!orderId) return { result: "error" };
-    try {
-      const response = await fetch(`${API_BASE_URL}/api/orders/verify/${orderId}`);
-      if (!response.ok) return { result: "error" };
-      const data: { message: string; status: number | string; requiresAction?: boolean; orderStatus?: string; serialId?: string } = await response.json();
-
-      console.log(`[VERIFY][KIOSK] Poll result:`, data);
-
-      if (data.orderStatus === "APPROVED") return { result: "approved" };
-      if (data.orderStatus === "REJECTED" || data.orderStatus === "CANCELLED") return { result: "rejected", serialId: data.serialId };
-      if (data.requiresAction === true || data.orderStatus === "PENDING" || data.orderStatus === "PENDING_PAYMENT") return { result: "pending" };
-      if (data.status === 200 && !data.requiresAction && data.orderStatus !== "PENDING") return { result: "approved" };
-
-      return { result: "pending" };
-    } catch {
-      return { result: "error" };
-    }
-  }, [orderId]);
-
-  // Start kiosk polling in background (UI stays on LogoReloadAnimation)
-  const startKioskPolling = useCallback(async () => {
+  // Kiosk waiting: only the websocket tells us when the order is approved.
+  // We start a countdown for the UI + timeout (20 min) and a single websocket
+  // listener for `order_approved`. No polling.
+  const startKioskWaiting = useCallback(() => {
     if (!orderId) return;
-    setKioskPolling(true);
+    setKioskWaiting(true);
     let remaining = KIOSK_TOTAL_SECONDS;
     setSecondsLeft(remaining);
 
@@ -78,40 +68,41 @@ export default function VerifyPurchase(props: Readonly<{ params: Readonly<Promis
       setSecondsLeft(remaining);
       if (remaining <= 0) {
         if (kioskTimerRef.current) clearInterval(kioskTimerRef.current);
-        if (kioskPollRef.current) clearInterval(kioskPollRef.current);
+        if (navigatedRef.current) return;
+        navigatedRef.current = true;
         router.push(`/kiosk-pago/${orderId}?status=payment_not_confirmed`);
       }
     }, 1000);
 
-    const first = await kioskVerifyOnce();
-    if (first.result === "approved") {
+    // Websocket: subscribe to this order's room and wait for order_approved.
+    const socket = connectKioskSocket();
+    const watch = () => socket.emit("watch_order", { orderId });
+    if (socket.connected) {
+      watch();
+    }
+    socket.on("connect", watch); // re-subscribe on reconnects
+
+    const onApproved = (data: { orderId: string }) => {
+      if (!data || data.orderId !== orderId) return;
+      if (navigatedRef.current) return;
+      navigatedRef.current = true;
       if (kioskTimerRef.current) clearInterval(kioskTimerRef.current);
       router.push(`/success-checkout/${orderId}?from=kiosk`);
-      return;
-    }
-    if (first.result === "rejected") {
-      if (kioskTimerRef.current) clearInterval(kioskTimerRef.current);
-      const serial = first.serialId || orderId;
-      router.push(`/carrito/step7?from=kiosk&status=payment_rejected&serial=${encodeURIComponent(serial)}`);
-      return;
-    }
+    };
+    socket.on("order_approved", onApproved);
 
-    kioskPollRef.current = setInterval(async () => {
-      const poll = await kioskVerifyOnce();
-      if (poll.result === "approved") {
-        if (kioskTimerRef.current) clearInterval(kioskTimerRef.current);
-        if (kioskPollRef.current) clearInterval(kioskPollRef.current);
-        router.push(`/success-checkout/${orderId}?from=kiosk`);
-      } else if (poll.result === "rejected") {
-        if (kioskTimerRef.current) clearInterval(kioskTimerRef.current);
-        if (kioskPollRef.current) clearInterval(kioskPollRef.current);
-        const serial = poll.serialId || orderId;
-        router.push(`/carrito/step7?from=kiosk&status=payment_rejected&serial=${encodeURIComponent(serial)}`);
-      }
-    }, KIOSK_POLL_INTERVAL * 1000);
-  }, [orderId, router, kioskVerifyOnce]);
+    // Detach handlers if this function is called twice or the page unmounts.
+    // Removing previous handlers before re-registering would also work, but
+    // tracking explicit refs keeps unmount cleanup symmetric and obvious.
+    if (socketCleanupRef.current) socketCleanupRef.current();
+    socketCleanupRef.current = () => {
+      socket.off("connect", watch);
+      socket.off("order_approved", onApproved);
+    };
+  }, [orderId, router]);
 
-  // Non-kiosk verification (original flow)
+  // Non-kiosk verification (e.g. PSE redirect back). Kept polling-based since
+  // those flows don't go through the kiosk websocket.
   const verifyOrder = useCallback(async () => {
     if (!orderId) return;
     try {
@@ -140,16 +131,17 @@ export default function VerifyPurchase(props: Readonly<{ params: Readonly<Promis
     if (!orderId || isCancelling) return;
     setIsCancelling(true);
     if (kioskTimerRef.current) clearInterval(kioskTimerRef.current);
-    if (kioskPollRef.current) clearInterval(kioskPollRef.current);
     let serial = orderId;
     try {
-      const res = await kioskCancelDatafonoPayment(orderId);
+      const res = await kioskCancelDatafonoV2(orderId);
       if ("serialId" in res && res.serialId) {
         serial = res.serialId;
       }
     } catch {
       // Even if cancel fails, redirect
     }
+    if (navigatedRef.current) return;
+    navigatedRef.current = true;
     router.push(`/carrito/step7?from=kiosk&status=order_cancelled&serial=${encodeURIComponent(serial)}`);
   }, [orderId, isCancelling, router]);
 
@@ -159,11 +151,11 @@ export default function VerifyPurchase(props: Readonly<{ params: Readonly<Promis
       <div className="fixed inset-0 z-50">
         <LogoReloadAnimation
           open={true}
-          onFinish={orderId ? startKioskPolling : undefined}
+          onFinish={orderId ? startKioskWaiting : undefined}
           text="Verificando pago"
         />
         {/* Overlay: timer + cancel — appears after animation finishes */}
-        {kioskPolling && (
+        {kioskWaiting && (
           <div className="fixed bottom-12 left-0 right-0 z-[60] flex flex-col items-center gap-4">
             {serialParam && (
               <div className="flex flex-col items-center mb-2">

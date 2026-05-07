@@ -22,7 +22,7 @@ import { toast } from "sonner";
 import { DBCard, DecryptedCardData } from "@/features/profile/types";
 import { encryptionService } from "@/lib/encryption";
 import CardBrandLogo from "@/components/ui/CardBrandLogo";
-import { payWithAddi, payWithCard, payWithPse, fetchBanks, kioskPayWithPse, kioskPayWithAddi, kioskCreateDatafonoOrder, kioskConfirmDatafono, kioskProcessDatafono, getPostHogIds } from "./utils";
+import { payWithAddi, payWithCard, payWithPse, fetchBanks, kioskPayWithPse, kioskPayWithAddi, kioskCreateDatafonoOrder, kioskConfirmDatafono, kioskProcessDatafono, kioskProcessDatafonoV2, getPostHogIds } from "./utils";
 import { useCart } from "@/hooks/useCart";
 import { useCardsCache } from "./hooks/useCardsCache";
 import { useDelivery } from "./hooks/useDelivery";
@@ -1865,16 +1865,19 @@ export default function Step7({ onBack }: Step7Props) {
               ...getPostHogIds(),
             };
 
-            const processRes = await kioskProcessDatafono(datafonoPayload);
+            // V2 webhook-driven flow: create order, post to Novasoft without
+            // guides/payment, return immediately. The verify-purchase page
+            // listens for `order_approved` over websocket — the backend fires
+            // it from the WSiMagiQ billing webhook handler.
+            const processRes = await kioskProcessDatafonoV2(datafonoPayload);
 
             if ("error" in processRes) {
               setError(processRes.message);
               throw new Error(processRes.message);
             }
 
-            console.log("✅ [Step7] Orden creada:", processRes.orderId, "Serial:", processRes.serialId);
+            console.log("✅ [Step7] V2 Orden creada:", processRes.orderId, "Serial:", processRes.serialId);
 
-            // Go directly to verify-purchase with countdown timer
             setIsProcessing(false);
             router.push(`/verify-purchase/${processRes.orderId}?from=kiosk&serial=${encodeURIComponent(processRes.serialId)}`);
             break;
