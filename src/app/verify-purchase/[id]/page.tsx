@@ -21,6 +21,7 @@ export default function VerifyPurchase(props: Readonly<{ params: Readonly<Promis
   const [isCancelling, setIsCancelling] = useState(false);
   const kioskTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const navigatedRef = useRef(false);
+  const socketCleanupRef = useRef<(() => void) | null>(null);
 
   const isKiosk = searchParams.get("from") === "kiosk";
   const serialParam = searchParams.get("serial");
@@ -31,12 +32,18 @@ export default function VerifyPurchase(props: Readonly<{ params: Readonly<Promis
     });
   }, [params]);
 
-  // Cleanup on unmount: clear timer + leave socket. The socket itself is a
-  // singleton so we only disconnect when this page unmounts to avoid keeping
-  // an idle connection open after the kiosk navigates away.
+  // Cleanup on unmount: clear timer, detach socket listeners, leave socket.
+  // The socket itself is a singleton so we only disconnect when this page
+  // unmounts to avoid keeping an idle connection open after the kiosk
+  // navigates away. Detaching the listeners first prevents stale handlers
+  // from firing if the socket gets re-used by another page mount.
   useEffect(() => {
     return () => {
       if (kioskTimerRef.current) clearInterval(kioskTimerRef.current);
+      if (socketCleanupRef.current) {
+        socketCleanupRef.current();
+        socketCleanupRef.current = null;
+      }
       if (isKiosk) disconnectKioskSocket();
     };
   }, [isKiosk]);
@@ -72,8 +79,6 @@ export default function VerifyPurchase(props: Readonly<{ params: Readonly<Promis
     const watch = () => socket.emit("watch_order", { orderId });
     if (socket.connected) {
       watch();
-    } else {
-      socket.once("connect", watch);
     }
     socket.on("connect", watch); // re-subscribe on reconnects
 
@@ -85,6 +90,15 @@ export default function VerifyPurchase(props: Readonly<{ params: Readonly<Promis
       router.push(`/success-checkout/${orderId}?from=kiosk`);
     };
     socket.on("order_approved", onApproved);
+
+    // Detach handlers if this function is called twice or the page unmounts.
+    // Removing previous handlers before re-registering would also work, but
+    // tracking explicit refs keeps unmount cleanup symmetric and obvious.
+    if (socketCleanupRef.current) socketCleanupRef.current();
+    socketCleanupRef.current = () => {
+      socket.off("connect", watch);
+      socket.off("order_approved", onApproved);
+    };
   }, [orderId, router]);
 
   // Non-kiosk verification (e.g. PSE redirect back). Kept polling-based since
