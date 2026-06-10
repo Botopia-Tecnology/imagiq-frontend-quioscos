@@ -1816,6 +1816,20 @@ export default function Step7({ onBack }: Step7Props) {
       //       console.log("🏠 [Step7] Usuario ID (del contexto):", authContext.user?.id || loggedUser?.id);
       //       console.log("🏠 [Step7] =============================================");
 
+      // Destinatario de envío (step3). Si el cliente desmarcó "Será recibido por
+      // el cliente" y puso a otra persona, lo mandamos para que el backend lo
+      // guarde; si recibe el comprador, solo enviamos el flag.
+      const recipientPayload =
+        recipientData?.receivedByClient === false
+          ? {
+              receivedByClient: false,
+              firstName: recipientData.firstName?.trim() || "",
+              lastName: recipientData.lastName?.trim() || "",
+              email: recipientData.email?.trim() || "",
+              phone: recipientData.phone?.trim() || "",
+            }
+          : { receivedByClient: true };
+
       switch (paymentData?.method) {
         case "tarjeta": {
           // KIOSK MODE: Use datafono process flow (creates order + guides without recogida)
@@ -1861,6 +1875,7 @@ export default function Step7({ onBack }: Step7Props) {
               },
               informacion_facturacion,
               beneficios: buildBeneficios(),
+            recipientData: recipientPayload,
               kioskStoreId: authContext.user?.id || loggedUser?.id || "",
               ...getPostHogIds(),
             };
@@ -1931,6 +1946,7 @@ export default function Step7({ onBack }: Step7Props) {
             } : {}),
             informacion_facturacion,
             beneficios: buildBeneficios(),
+            recipientData: recipientPayload,
           });
 
           if ("error" in res) {
@@ -2042,6 +2058,7 @@ export default function Step7({ onBack }: Step7Props) {
             },
             informacion_facturacion,
             beneficios: buildBeneficios(),
+            recipientData: recipientPayload,
             bankName: paymentData.bankName || "",
           };
 
@@ -2138,6 +2155,7 @@ export default function Step7({ onBack }: Step7Props) {
             },
             informacion_facturacion,
             beneficios: buildBeneficios(),
+            recipientData: recipientPayload,
           };
 
           // Kiosk mode: use separate endpoint that sends link via email
@@ -2225,6 +2243,7 @@ export default function Step7({ onBack }: Step7Props) {
             },
             informacion_facturacion,
             beneficios: buildBeneficios(),
+            recipientData: recipientPayload,
             kioskStoreId: authContext.user?.id || loggedUser?.id || "",
             ...getPostHogIds(),
           };

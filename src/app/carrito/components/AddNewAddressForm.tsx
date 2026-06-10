@@ -816,9 +816,14 @@ export default function AddNewAddressForm({
   };
 
   const handleInputChange = (field: string, value: string) => {
-    // Si intentan modificar la ciudad y fue auto-completada, no permitirlo
-    if (field === "ciudad" && isCityAutoCompleted) {
-      return;
+    // El autocompletado de la ubicación (geolocalización / Google Places) marca
+    // la ciudad como auto-completada UNA sola vez. En cuanto el usuario edita
+    // CUALQUIER campo a mano, liberamos ese "lock" para permitir edición libre
+    // de todo el formulario (incluida la ciudad). La geolocalización/Google
+    // escriben con setFormData directo, no pasan por aquí, así que el lock solo
+    // se libera ante una edición manual real del usuario.
+    if (isCityAutoCompleted) {
+      setIsCityAutoCompleted(false);
     }
     setFormData((prev) => ({ ...prev, [field]: value }));
     // Clear error when user starts typing
