@@ -117,7 +117,6 @@ export default function AddNewAddressForm({
     
     return !!(
       selectedAddress &&
-      formData.nombreDireccion.trim() &&
       formData.instruccionesEntrega.trim() &&
       formData.departamento.trim() &&
       formData.ciudad.trim() &&
@@ -128,7 +127,6 @@ export default function AddNewAddressForm({
   }, [
     currentStep,
     selectedAddress,
-    formData.nombreDireccion,
     formData.instruccionesEntrega,
     formData.departamento,
     formData.ciudad,
@@ -431,13 +429,9 @@ export default function AddNewAddressForm({
         "Selecciona una dirección de envío usando el autocompletado";
     }
 
-    // Solo validar nombreDireccion e instruccionesEntrega si NO es billingOnly
-    // (en billingOnly se usa nombre automático y no requiere instrucciones)
+    // Solo validar instruccionesEntrega si NO es billingOnly (el "Nombre de la
+    // dirección" se eliminó del formulario; se genera automático en el submit).
     if (!billingOnly) {
-      if (!formData.nombreDireccion.trim()) {
-        newErrors.nombreDireccion = "El nombre de la dirección es requerido";
-      }
-
       if (!formData.instruccionesEntrega.trim()) {
         newErrors.instruccionesEntrega = "Las instrucciones de entrega son requeridas";
       }
@@ -573,7 +567,14 @@ export default function AddNewAddressForm({
       // Crear dirección de envío (o facturación si billingOnly)
       const shippingAddressRequest: CreateAddressRequest = {
         // Si es billingOnly, usar nombre automático "Dirección de facturación"
-        nombreDireccion: billingOnly ? "facturacion" : formData.nombreDireccion,
+        // El campo "Nombre de la dirección" se eliminó del formulario. Se genera
+        // uno automático (la calle) para no romper el modelo de datos ni las
+        // tarjetas que lo muestran.
+        nombreDireccion: billingOnly
+          ? "facturacion"
+          : (formData.nombreDireccion.trim() ||
+             `${formData.nombreCalle} ${formData.numeroPrincipal}`.trim() ||
+             "Mi dirección"),
         tipoDireccion: formData.tipoDireccion,
         // Si es billingOnly, siempre es tipo FACTURACION
         tipo: billingOnly ? "FACTURACION" : (formData.usarMismaParaFacturacion ? "AMBOS" : "ENVIO"),
@@ -1533,41 +1534,8 @@ export default function AddNewAddressForm({
       {/* PASO 2: Información adicional */}
       {currentStep === 2 && (
         <div className="space-y-4">
-          {/* Nombre de la dirección y Tipo de propiedad en la misma fila */}
+          {/* Tipo de propiedad */}
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-            {/* Nombre de la dirección */}
-            <div>
-              <label
-                htmlFor="nombreDireccion"
-                className="block text-sm font-bold text-gray-900 mb-1"
-              >
-                Nombre de la dirección <span className="text-red-500">*</span>
-              </label>
-              <input
-                id="nombreDireccion"
-                type="text"
-                value={formData.nombreDireccion}
-                onChange={(e) =>
-                  handleInputChange("nombreDireccion", e.target.value)
-                }
-                placeholder="ej: Casa, Oficina, Casa de mamá"
-                disabled={disabled}
-                className={`w-full px-3 py-2 border rounded-md text-sm focus:ring-2 focus:ring-blue-500 focus:border-transparent transition ${
-                  disabled
-                    ? "bg-gray-100 cursor-not-allowed opacity-60"
-                    : getFieldBackgroundClass(formData.nombreDireccion)
-                } ${
-                  errors.nombreDireccion ? "border-red-500" : "border-gray-300"
-                }`}
-              />
-              {errors.nombreDireccion && (
-                <p className="text-red-500 text-xs mt-1">
-                  {errors.nombreDireccion}
-                </p>
-              )}
-            </div>
-
-            {/* Tipo de propiedad */}
             <div>
               <label
                 htmlFor="tipoDireccionPropiedad"
@@ -1666,12 +1634,11 @@ export default function AddNewAddressForm({
                   disabled ||
                   isLoading ||
                   !selectedAddress ||
-                  !formData.nombreDireccion ||
                   !formData.instruccionesEntrega ||
                   (!formData.usarMismaParaFacturacion && !selectedBillingAddress)
                 }
                 className={`flex-1 text-white px-6 py-3 rounded-xl font-bold transition border-2 ${
-                  !(disabled || isLoading || !selectedAddress || !formData.nombreDireccion || !formData.instruccionesEntrega || (!formData.usarMismaParaFacturacion && !selectedBillingAddress))
+                  !(disabled || isLoading || !selectedAddress || !formData.instruccionesEntrega || (!formData.usarMismaParaFacturacion && !selectedBillingAddress))
                     ? "bg-green-600 border-green-500 hover:bg-green-700 hover:border-green-600 shadow-lg shadow-green-500/40 hover:shadow-xl hover:shadow-green-500/50"
                     : "bg-gray-400 border-gray-300 cursor-not-allowed"
                 }`}
@@ -1715,12 +1682,11 @@ export default function AddNewAddressForm({
                 disabled={
                   isLoading ||
                   !selectedAddress ||
-                  !formData.nombreDireccion ||
                   !formData.instruccionesEntrega ||
                   (!formData.usarMismaParaFacturacion && !selectedBillingAddress)
                 }
                 className={`flex-1 text-white px-6 py-3 rounded-xl font-bold transition border-2 ${
-                  !(isLoading || !selectedAddress || !formData.nombreDireccion || !formData.instruccionesEntrega || (!formData.usarMismaParaFacturacion && !selectedBillingAddress))
+                  !(isLoading || !selectedAddress || !formData.instruccionesEntrega || (!formData.usarMismaParaFacturacion && !selectedBillingAddress))
                     ? "bg-green-600 border-green-500 hover:bg-green-700 hover:border-green-600 shadow-lg shadow-green-500/40 hover:shadow-xl hover:shadow-green-500/50"
                     : "bg-gray-400 border-gray-300 cursor-not-allowed"
                 }`}
