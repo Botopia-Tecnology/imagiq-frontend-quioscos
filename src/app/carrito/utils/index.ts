@@ -24,6 +24,20 @@ export type KioskEmailSentResponse = {
   serialId: string;
 };
 
+// Traduce el error crudo de ADDI (p.ej. `Addi API error: {"code":"000-008",
+// "message":"El tipo de documento no es válido."}`) a un mensaje que el cliente
+// entienda, en vez de mostrarle el JSON de la API.
+function friendlyAddiError(raw: string): string {
+  const msg = (raw || "").toLowerCase();
+  if (msg.includes("tipo de documento") || msg.includes("000-008")) {
+    return "Hubo un problema con el tipo de documento del cliente. Actualízalo (Cédula, NIT, etc.) e intenta de nuevo, o usa otro medio de pago.";
+  }
+  if (msg.includes("monto") || msg.includes("amount")) {
+    return "El monto de la compra no cumple los requisitos de financiación de Addi. Intenta con otro medio de pago.";
+  }
+  return "No pudimos iniciar la financiación con Addi en este momento. Verifica los datos o intenta con otro medio de pago.";
+}
+
 export async function payWithAddi(
   props: AddiPaymentData
 ): Promise<{ redirectUrl: string } | { error: string; message: string }> {
@@ -33,7 +47,7 @@ export async function payWithAddi(
   } catch (error) {
     console.error("Error initiating Addi payment:", error);
     if (error instanceof Error) {
-      return { error: "payment_failed", message: error.message || "Failed to initiate Addi payment" };
+      return { error: "payment_failed", message: friendlyAddiError(error.message) };
     }
     return { error: "network_error", message: "Error de conexión al procesar el pago" };
   }
