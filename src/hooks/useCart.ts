@@ -712,7 +712,7 @@ export function useCart(): UseCartReturn {
           if (newProducts.length === 0) {
             localStorage.removeItem(STORAGE_KEYS.CART_ITEMS);
           } else {
-            apiDelete(`/api/cart/items/${productId}`);
+            apiDelete(`/api/cart/items/${encodeURIComponent(productId)}`);
             localStorage.setItem(
               STORAGE_KEYS.CART_ITEMS,
               JSON.stringify(newProducts)
