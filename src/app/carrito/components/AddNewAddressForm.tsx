@@ -110,30 +110,56 @@ export default function AddNewAddressForm({
   const [currentStep, setCurrentStep] = useState<1 | 2>(1); // Control de pasos del formulario
   const [showTooltip, setShowTooltip] = useState(false);
 
+  // Facturación completa: usa la misma dirección o los campos manuales de facturación están llenos
+  // (la sugerencia de Google es opcional también para facturación)
+  const isBillingComplete = React.useMemo(() => (
+    formData.usarMismaParaFacturacion ||
+    !!(
+      formData.nombreDireccionFacturacion.trim() &&
+      formData.departamentoFacturacion.trim() &&
+      formData.nombreCalleFacturacion.trim() &&
+      formData.numeroPrincipalFacturacion.trim()
+    )
+  ), [
+    formData.usarMismaParaFacturacion,
+    formData.nombreDireccionFacturacion,
+    formData.departamentoFacturacion,
+    formData.nombreCalleFacturacion,
+    formData.numeroPrincipalFacturacion
+  ]);
+
   // Verificar si el formulario completo (paso 2) es válido
+  // NOTA: La dirección de Google Places (selectedAddress) es opcional — los campos manuales son suficientes
   const isFormComplete = React.useMemo(() => {
     // Solo validar si estamos en el paso 2
     if (currentStep !== 2) return false;
-    
+
     return !!(
+<<<<<<< ours
       selectedAddress &&
+=======
+      formData.nombreDireccion.trim() &&
+>>>>>>> theirs
       formData.instruccionesEntrega.trim() &&
       formData.departamento.trim() &&
       formData.ciudad.trim() &&
       formData.nombreCalle.trim() &&
       formData.numeroPrincipal.trim() &&
-      (formData.usarMismaParaFacturacion || selectedBillingAddress)
+      isBillingComplete
     );
   }, [
     currentStep,
+<<<<<<< ours
     selectedAddress,
+=======
+    formData.nombreDireccion,
+>>>>>>> theirs
     formData.instruccionesEntrega,
     formData.departamento,
     formData.ciudad,
     formData.nombreCalle,
     formData.numeroPrincipal,
-    formData.usarMismaParaFacturacion,
-    selectedBillingAddress
+    isBillingComplete
   ]);
 
   // Notificar cuando el formulario es válido
@@ -367,9 +393,9 @@ export default function AddNewAddressForm({
   }, [geoLocationData, isRequestingLocation, cities, formData.ciudad]);
 
   // Validar si el Step 1 está completo para habilitar el botón "Continuar"
+  // Google Places (selectedAddress) es opcional — los campos manuales son suficientes
   const isStep1Complete = useMemo(() => {
     return !!(
-      selectedAddress &&
       formData.departamento.trim() &&
       formData.ciudad.trim() &&
       formData.nombreCalle.trim() &&
@@ -379,7 +405,6 @@ export default function AddNewAddressForm({
       formData.setsReferencia.trim()
     );
   }, [
-    selectedAddress,
     formData.departamento,
     formData.ciudad,
     formData.nombreCalle,
@@ -407,7 +432,7 @@ export default function AddNewAddressForm({
     if (!formData.numeroSecundario.trim()) missing.push("# Secund.");
     if (!formData.numeroComplementario.trim()) missing.push("# Compl.");
     if (!formData.setsReferencia.trim()) missing.push("Complemento");
-    if (!selectedAddress) missing.push("Dirección de Google Maps");
+    // Google Places es opcional — no listar como campo faltante
 
     return missing;
   }, [
@@ -424,10 +449,7 @@ export default function AddNewAddressForm({
   const validateForm = () => {
     const newErrors: { [key: string]: string } = {};
 
-    if (!selectedAddress) {
-      newErrors.address =
-        "Selecciona una dirección de envío usando el autocompletado";
-    }
+    // Google Places (selectedAddress) es opcional — los campos manuales son suficientes
 
     // Solo validar instruccionesEntrega si NO es billingOnly (el "Nombre de la
     // dirección" se eliminó del formulario; se genera automático en el submit).
@@ -455,12 +477,8 @@ export default function AddNewAddressForm({
     }
 
     // Validar dirección de facturación si no usa la misma
+    // (la sugerencia de Google es opcional — los campos manuales son suficientes)
     if (!formData.usarMismaParaFacturacion) {
-      if (!selectedBillingAddress) {
-        newErrors.billingAddress =
-          "Selecciona una dirección de facturación usando el autocompletado";
-      }
-
       if (!formData.nombreDireccionFacturacion.trim()) {
         newErrors.nombreDireccionFacturacion =
           "El nombre de la dirección de facturación es requerido";
@@ -488,67 +506,79 @@ export default function AddNewAddressForm({
   };
 
   const handleSubmitInternal = async () => {
-    if (!validateForm() || !selectedAddress) {
+    if (!validateForm()) {
       return;
     }
 
     setIsLoading(true);
 
     try {
-      // Validar que selectedAddress tenga la estructura necesaria
-      if (!selectedAddress) {
-        throw new Error("No se ha seleccionado una dirección válida");
-      }
+      // Construir placeDetails: desde Google si disponible, o desde campos manuales
+      let transformedPlaceDetails: Record<string, unknown>;
 
-      // Obtener coordenadas de manera segura - manejar diferentes estructuras posibles
-      let latitude: number;
-      let longitude: number;
+      if (selectedAddress) {
+        // Obtener coordenadas de manera segura - manejar diferentes estructuras posibles
+        let latitude: number;
+        let longitude: number;
 
-      if (
-        selectedAddress.latitude !== undefined &&
-        selectedAddress.longitude !== undefined
-      ) {
-        // Estructura directa según PlaceDetails type
-        latitude = selectedAddress.latitude;
-        longitude = selectedAddress.longitude;
-      } else if (selectedAddress.geometry?.location) {
-        // Estructura de Google Places API
-        latitude = selectedAddress.geometry.location.lat;
-        longitude = selectedAddress.geometry.location.lng;
+        if (
+          selectedAddress.latitude !== undefined &&
+          selectedAddress.longitude !== undefined
+        ) {
+          // Estructura directa según PlaceDetails type
+          latitude = selectedAddress.latitude;
+          longitude = selectedAddress.longitude;
+        } else if (selectedAddress.geometry?.location) {
+          // Estructura de Google Places API
+          latitude = selectedAddress.geometry.location.lat;
+          longitude = selectedAddress.geometry.location.lng;
+        } else {
+          throw new Error(
+            "No se pudieron obtener las coordenadas de la dirección seleccionada"
+          );
+        }
+
+        // Transformar PlaceDetails al formato esperado por el backend
+        // Incluir todos los campos opcionales si están disponibles
+        transformedPlaceDetails = {
+          placeId: selectedAddress.placeId,
+          formattedAddress: selectedAddress.formattedAddress,
+          name: selectedAddress.name || "",
+          latitude,
+          longitude,
+          addressComponents: selectedAddress.addressComponents || [],
+          types: selectedAddress.types || [],
+          // Campos opcionales - incluir solo si existen
+          ...(selectedAddress.postalCode && {
+            postalCode: selectedAddress.postalCode,
+          }),
+          ...(selectedAddress.city && { city: selectedAddress.city }),
+          ...(selectedAddress.department && {
+            department: selectedAddress.department,
+          }),
+          ...(selectedAddress.locality && { locality: selectedAddress.locality }),
+          ...(selectedAddress.neighborhood && {
+            neighborhood: selectedAddress.neighborhood,
+          }),
+          ...(selectedAddress.vicinity && { vicinity: selectedAddress.vicinity }),
+          ...(selectedAddress.url && { url: selectedAddress.url }),
+          ...(selectedAddress.nomenclature && {
+            nomenclature: selectedAddress.nomenclature,
+          }),
+        };
       } else {
-        throw new Error(
-          "No se pudieron obtener las coordenadas de la dirección seleccionada"
-        );
+        // Sin Google Places: construir dirección formateada desde campos manuales
+        const manualAddress = `${formData.nombreCalle} ${formData.numeroPrincipal} # ${formData.numeroSecundario} - ${formData.numeroComplementario}`;
+        transformedPlaceDetails = {
+          placeId: '',
+          formattedAddress: manualAddress,
+          name: manualAddress,
+          latitude: 0,
+          longitude: 0,
+          addressComponents: [],
+          types: [],
+        };
       }
-
-      // Transformar PlaceDetails al formato esperado por el backend
-      // Incluir todos los campos opcionales si están disponibles
-      const transformedPlaceDetails = {
-        placeId: selectedAddress.placeId,
-        formattedAddress: selectedAddress.formattedAddress,
-        name: selectedAddress.name || "",
-        latitude,
-        longitude,
-        addressComponents: selectedAddress.addressComponents || [],
-        types: selectedAddress.types || [],
-        // Campos opcionales - incluir solo si existen
-        ...(selectedAddress.postalCode && {
-          postalCode: selectedAddress.postalCode,
-        }),
-        ...(selectedAddress.city && { city: selectedAddress.city }),
-        ...(selectedAddress.department && {
-          department: selectedAddress.department,
-        }),
-        ...(selectedAddress.locality && { locality: selectedAddress.locality }),
-        ...(selectedAddress.neighborhood && {
-          neighborhood: selectedAddress.neighborhood,
-        }),
-        ...(selectedAddress.vicinity && { vicinity: selectedAddress.vicinity }),
-        ...(selectedAddress.url && { url: selectedAddress.url }),
-        ...(selectedAddress.nomenclature && {
-          nomenclature: selectedAddress.nomenclature,
-        }),
-      };
 
       // DEBUG: Log de datos antes de crear la request
       console.log('🏗️ [AddNewAddressForm] Construyendo request de dirección:', {
@@ -558,10 +588,10 @@ export default function AddNewAddressForm({
         nombreCalle: formData.nombreCalle,
         numeroPrincipal: formData.numeroPrincipal,
         tipoDireccion: formData.tipoDireccion,
-        placeId: selectedAddress?.placeId,
-        formattedAddress: selectedAddress?.formattedAddress,
-        latitude: latitude,
-        longitude: longitude,
+        placeId: transformedPlaceDetails.placeId,
+        formattedAddress: transformedPlaceDetails.formattedAddress,
+        latitude: transformedPlaceDetails.latitude,
+        longitude: transformedPlaceDetails.longitude,
       });
 
       // Crear dirección de envío (o facturación si billingOnly)
@@ -579,7 +609,7 @@ export default function AddNewAddressForm({
         // Si es billingOnly, siempre es tipo FACTURACION
         tipo: billingOnly ? "FACTURACION" : (formData.usarMismaParaFacturacion ? "AMBOS" : "ENVIO"),
         esPredeterminada: !skipSetDefault, // NO marcar como predeterminada si skipSetDefault es true
-        placeDetails: transformedPlaceDetails as PlaceDetails,
+        placeDetails: transformedPlaceDetails as unknown as PlaceDetails,
         // Nuevos campos estructurados
         departamento: formData.departamento || undefined,
         nombreCalle: formData.nombreCalle || undefined,
@@ -601,72 +631,88 @@ export default function AddNewAddressForm({
         : await addressesService.createAddress(shippingAddressRequest);
 
       // Si no usa la misma dirección, crear dirección de facturación separada
-      if (!formData.usarMismaParaFacturacion && selectedBillingAddress) {
+      if (!formData.usarMismaParaFacturacion) {
+        // Construir placeDetails de facturación: desde Google si disponible, o desde campos manuales
+        let transformedBillingPlaceDetails: Record<string, unknown>;
 
-        // Obtener coordenadas de la dirección de facturación de manera segura
-        let billingLatitude: number;
-        let billingLongitude: number;
+        if (selectedBillingAddress) {
+          // Obtener coordenadas de la dirección de facturación de manera segura
+          let billingLatitude: number;
+          let billingLongitude: number;
 
-        if (
-          selectedBillingAddress.latitude !== undefined &&
-          selectedBillingAddress.longitude !== undefined
-        ) {
-          // Estructura directa según PlaceDetails type
-          billingLatitude = selectedBillingAddress.latitude;
-          billingLongitude = selectedBillingAddress.longitude;
-        } else if (selectedBillingAddress.geometry?.location) {
-          // Estructura de Google Places API
-          billingLatitude = selectedBillingAddress.geometry.location.lat;
-          billingLongitude = selectedBillingAddress.geometry.location.lng;
+          if (
+            selectedBillingAddress.latitude !== undefined &&
+            selectedBillingAddress.longitude !== undefined
+          ) {
+            // Estructura directa según PlaceDetails type
+            billingLatitude = selectedBillingAddress.latitude;
+            billingLongitude = selectedBillingAddress.longitude;
+          } else if (selectedBillingAddress.geometry?.location) {
+            // Estructura de Google Places API
+            billingLatitude = selectedBillingAddress.geometry.location.lat;
+            billingLongitude = selectedBillingAddress.geometry.location.lng;
+          } else {
+            throw new Error(
+              "No se pudieron obtener las coordenadas de la dirección de facturación seleccionada"
+            );
+          }
+
+          // Transformar PlaceDetails de facturación al formato esperado por el backend
+          // Incluir todos los campos opcionales si están disponibles
+          transformedBillingPlaceDetails = {
+            placeId: selectedBillingAddress.placeId,
+            formattedAddress: selectedBillingAddress.formattedAddress,
+            name: selectedBillingAddress.name || "",
+            latitude: billingLatitude,
+            longitude: billingLongitude,
+            addressComponents: selectedBillingAddress.addressComponents || [],
+            types: selectedBillingAddress.types || [],
+            // Campos opcionales - incluir solo si existen
+            ...(selectedBillingAddress.postalCode && {
+              postalCode: selectedBillingAddress.postalCode,
+            }),
+            ...(selectedBillingAddress.city && {
+              city: selectedBillingAddress.city,
+            }),
+            ...(selectedBillingAddress.department && {
+              department: selectedBillingAddress.department,
+            }),
+            ...(selectedBillingAddress.locality && {
+              locality: selectedBillingAddress.locality,
+            }),
+            ...(selectedBillingAddress.neighborhood && {
+              neighborhood: selectedBillingAddress.neighborhood,
+            }),
+            ...(selectedBillingAddress.vicinity && {
+              vicinity: selectedBillingAddress.vicinity,
+            }),
+            ...(selectedBillingAddress.url && {
+              url: selectedBillingAddress.url,
+            }),
+            ...(selectedBillingAddress.nomenclature && {
+              nomenclature: selectedBillingAddress.nomenclature,
+            }),
+          };
         } else {
-          throw new Error(
-            "No se pudieron obtener las coordenadas de la dirección de facturación seleccionada"
-          );
+          // Sin Google Places: construir dirección de facturación desde campos manuales
+          const manualBillingAddress = `${formData.nombreCalleFacturacion} ${formData.numeroPrincipalFacturacion} # ${formData.numeroSecundarioFacturacion} - ${formData.numeroComplementarioFacturacion}`;
+          transformedBillingPlaceDetails = {
+            placeId: '',
+            formattedAddress: manualBillingAddress,
+            name: manualBillingAddress,
+            latitude: 0,
+            longitude: 0,
+            addressComponents: [],
+            types: [],
+          };
         }
-
-        // Transformar PlaceDetails de facturación al formato esperado por el backend
-        // Incluir todos los campos opcionales si están disponibles
-        const transformedBillingPlaceDetails = {
-          placeId: selectedBillingAddress.placeId,
-          formattedAddress: selectedBillingAddress.formattedAddress,
-          name: selectedBillingAddress.name || "",
-          latitude: billingLatitude,
-          longitude: billingLongitude,
-          addressComponents: selectedBillingAddress.addressComponents || [],
-          types: selectedBillingAddress.types || [],
-          // Campos opcionales - incluir solo si existen
-          ...(selectedBillingAddress.postalCode && {
-            postalCode: selectedBillingAddress.postalCode,
-          }),
-          ...(selectedBillingAddress.city && {
-            city: selectedBillingAddress.city,
-          }),
-          ...(selectedBillingAddress.department && {
-            department: selectedBillingAddress.department,
-          }),
-          ...(selectedBillingAddress.locality && {
-            locality: selectedBillingAddress.locality,
-          }),
-          ...(selectedBillingAddress.neighborhood && {
-            neighborhood: selectedBillingAddress.neighborhood,
-          }),
-          ...(selectedBillingAddress.vicinity && {
-            vicinity: selectedBillingAddress.vicinity,
-          }),
-          ...(selectedBillingAddress.url && {
-            url: selectedBillingAddress.url,
-          }),
-          ...(selectedBillingAddress.nomenclature && {
-            nomenclature: selectedBillingAddress.nomenclature,
-          }),
-        };
 
         const billingAddressRequest: CreateAddressRequest = {
           nombreDireccion: formData.nombreDireccionFacturacion,
           tipoDireccion: formData.tipoDireccionFacturacion,
           tipo: "FACTURACION",
           esPredeterminada: false,
-          placeDetails: transformedBillingPlaceDetails as PlaceDetails,
+          placeDetails: transformedBillingPlaceDetails as unknown as PlaceDetails,
           // Nuevos campos estructurados para facturación
           departamento: formData.departamentoFacturacion || undefined,
           nombreCalle: formData.nombreCalleFacturacion || undefined,
@@ -1093,8 +1139,8 @@ export default function AddNewAddressForm({
   React.useEffect(() => {
     if (onSubmitRef) {
       onSubmitRef.current = async () => {
-        // Validar antes de proceder
-        if (!validateForm() || !selectedAddress) {
+        // Validar antes de proceder (Google Places es opcional)
+        if (!validateForm()) {
           return;
         }
         // Llamar a handleSubmitInternal
@@ -1114,8 +1160,8 @@ export default function AddNewAddressForm({
             setCurrentStep(2);
           }
         } else {
-          // En paso 2: hacer submit
-          if (!validateForm() || !selectedAddress) {
+          // En paso 2: hacer submit (Google Places es opcional)
+          if (!validateForm()) {
             return;
           }
           await handleSubmitInternal();
@@ -1633,12 +1679,20 @@ export default function AddNewAddressForm({
                 disabled={
                   disabled ||
                   isLoading ||
+<<<<<<< ours
                   !selectedAddress ||
+=======
+                  !formData.nombreDireccion ||
+>>>>>>> theirs
                   !formData.instruccionesEntrega ||
-                  (!formData.usarMismaParaFacturacion && !selectedBillingAddress)
+                  !isBillingComplete
                 }
                 className={`flex-1 text-white px-6 py-3 rounded-xl font-bold transition border-2 ${
+<<<<<<< ours
                   !(disabled || isLoading || !selectedAddress || !formData.instruccionesEntrega || (!formData.usarMismaParaFacturacion && !selectedBillingAddress))
+=======
+                  !(disabled || isLoading || !formData.nombreDireccion || !formData.instruccionesEntrega || !isBillingComplete)
+>>>>>>> theirs
                     ? "bg-green-600 border-green-500 hover:bg-green-700 hover:border-green-600 shadow-lg shadow-green-500/40 hover:shadow-xl hover:shadow-green-500/50"
                     : "bg-gray-400 border-gray-300 cursor-not-allowed"
                 }`}
@@ -1681,12 +1735,20 @@ export default function AddNewAddressForm({
                 type="submit"
                 disabled={
                   isLoading ||
+<<<<<<< ours
                   !selectedAddress ||
+=======
+                  !formData.nombreDireccion ||
+>>>>>>> theirs
                   !formData.instruccionesEntrega ||
-                  (!formData.usarMismaParaFacturacion && !selectedBillingAddress)
+                  !isBillingComplete
                 }
                 className={`flex-1 text-white px-6 py-3 rounded-xl font-bold transition border-2 ${
+<<<<<<< ours
                   !(isLoading || !selectedAddress || !formData.instruccionesEntrega || (!formData.usarMismaParaFacturacion && !selectedBillingAddress))
+=======
+                  !(isLoading || !formData.nombreDireccion || !formData.instruccionesEntrega || !isBillingComplete)
+>>>>>>> theirs
                     ? "bg-green-600 border-green-500 hover:bg-green-700 hover:border-green-600 shadow-lg shadow-green-500/40 hover:shadow-xl hover:shadow-green-500/50"
                     : "bg-gray-400 border-gray-300 cursor-not-allowed"
                 }`}
