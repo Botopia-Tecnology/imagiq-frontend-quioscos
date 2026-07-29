@@ -10,6 +10,7 @@
 
 import type { ProductFilterParams } from "./sharedInterfaces";
 import type { StoresApiResponse } from "@/types/store";
+import { COD_BODEGA_CD, withCodBodegaCD } from "./kiosk-bodega";
 
 // API Client configuration
 const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || "";
@@ -112,8 +113,13 @@ export class ApiClient {
   }
 
   // HTTP methods
+  // Los GET de productos llevan siempre codBodega=001: el quiosco solo
+  // vende lo que el Centro de Distribución puede despachar.
   async get<T>(endpoint: string, init?: RequestInit): Promise<ApiResponse<T>> {
-    return this.request<T>(endpoint, { method: "GET", ...(init || {}) });
+    return this.request<T>(withCodBodegaCD(endpoint), {
+      method: "GET",
+      ...(init || {}),
+    });
   }
 
   async post<T>(endpoint: string, data?: unknown): Promise<ApiResponse<T>> {
@@ -425,7 +431,9 @@ export const productEndpoints = {
 
       // Ejecutar todos los batches en paralelo
       const batchPromises = batches.map(batch =>
-        apiClient.post<BatchProductResponse>('/api/products/v2/batch', { queries: batch })
+        apiClient.post<BatchProductResponse>('/api/products/v2/batch', {
+          queries: batch.map(q => ({ ...q, codBodega: COD_BODEGA_CD })),
+        })
       );
 
       const responses = await Promise.allSettled(batchPromises);
@@ -464,7 +472,9 @@ export const productEndpoints = {
     }
 
     // Si hay 100 o menos queries, hacer una sola petición
-    return apiClient.post<BatchProductResponse>('/api/products/v2/batch', { queries });
+    return apiClient.post<BatchProductResponse>('/api/products/v2/batch', {
+      queries: queries.map(q => ({ ...q, codBodega: COD_BODEGA_CD })),
+    });
   },
 };
 
