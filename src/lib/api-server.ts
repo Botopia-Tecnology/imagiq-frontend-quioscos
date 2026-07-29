@@ -16,6 +16,7 @@ import type {
   Campaign,
 } from "./types/api-types";
 import type { FormattedStore, Store } from "@/types/store";
+import { withCodBodegaCD } from "./kiosk-bodega";
 
 const API_URL =
   process.env.NEXT_PUBLIC_API_URL ||
@@ -41,7 +42,8 @@ async function serverFetch<T>(
   endpoint: string,
   options?: RequestInit
 ): Promise<T> {
-  const url = `${API_URL}${endpoint}`;
+  // GETs de productos siempre con codBodega=001 (stock solo del CD)
+  const url = `${API_URL}${withCodBodegaCD(endpoint)}`;
 
   try {
     const res = await fetch(url, {
