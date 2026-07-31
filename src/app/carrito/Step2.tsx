@@ -1317,6 +1317,10 @@ export default function Step2({
     await new Promise(resolve => setTimeout(resolve, 500));
     // console.log('✅ Delay completado');
 
+    // Contexto para poder cachear el fallo desde el catch (userId/products/addressId
+    // se declaran dentro del try y no son visibles allí).
+    let cacheCtx: { userId: string; products: { sku: string; quantity: number }[]; addressId: string | null } | null = null;
+
     // Llamar al endpoint de candidate stores y esperar la respuesta
     try {
       // console.log('🔄 Iniciando consulta de candidate stores...');
@@ -1370,6 +1374,9 @@ export default function Step2({
           }
         }
       }
+
+      // Guardar contexto para el catch (cacheo de fallo)
+      cacheCtx = { userId, products, addressId: addressId || null };
 
       // console.log('📦 Consultando candidate stores con:', {
       //         userId,
@@ -1443,6 +1450,19 @@ export default function Step2({
         }
       } else {
         console.warn('⚠️ [handleAddressAdded] La respuesta del endpoint no contiene datos para guardar en caché');
+        // CRÍTICO: cachear también el fallo. Sin esta entrada, el guard de step3
+        // no encuentra la clave y rebota a step1 en bucle (el fix de useDelivery
+        // no corre en esta vía porque Step2 hace el fetch directo).
+        const { buildGlobalCanPickUpKey, setGlobalCanPickUpCache } = await import('@/app/carrito/utils/globalCanPickUpCache');
+        const errorCacheKey = buildGlobalCanPickUpKey({ userId, products, addressId: addressId || null });
+        setGlobalCanPickUpCache(errorCacheKey, false, {
+          canPickUp: false,
+          stores: {},
+          success: false,
+          hasData: false,
+          message: 'candidate-stores sin datos',
+          default_direction: null
+        } as unknown as Parameters<typeof setGlobalCanPickUpCache>[2], addressId || null);
       }
 
       // IMPORTANTE: Solo avanzar DESPUÉS de guardar en caché exitosamente
@@ -1466,6 +1486,26 @@ export default function Step2({
         message: error instanceof Error ? error.message : String(error),
         stack: error instanceof Error ? error.stack : undefined
       });
+
+      // CRÍTICO: cachear el fallo antes de avanzar; si no, el guard de step3 no
+      // encuentra la clave y rebota a step1 en bucle.
+      if (cacheCtx) {
+        try {
+          const { buildGlobalCanPickUpKey, setGlobalCanPickUpCache } = await import('@/app/carrito/utils/globalCanPickUpCache');
+          const errorCacheKey = buildGlobalCanPickUpKey(cacheCtx);
+          setGlobalCanPickUpCache(errorCacheKey, false, {
+            canPickUp: false,
+            stores: {},
+            success: false,
+            hasData: false,
+            message: error instanceof Error ? error.message : String(error),
+            default_direction: null
+          } as unknown as Parameters<typeof setGlobalCanPickUpCache>[2], cacheCtx.addressId);
+        } catch (cacheError) {
+          console.error('❌ No se pudo cachear el fallo de candidate stores:', cacheError);
+        }
+      }
+
       // IMPORTANTE: Avanzar de todas formas al Step3 a pesar del error
       // console.log('⚠️ Avanzando al Step3 a pesar del error en candidate stores');
       setHasAddedAddress(true);
