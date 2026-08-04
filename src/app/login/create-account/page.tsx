@@ -407,7 +407,7 @@ export default function CreateAccountPage() {
                 </div>
 
                 <p className="text-xs text-gray-500">
-                  Solo disponible para correos @botopia.tech, @imagiq.com o @imagiq.co
+                  Solo disponible para correos @lumintik.com, @imagiq.com o @imagiq.co
                 </p>
 
                 {error && (
