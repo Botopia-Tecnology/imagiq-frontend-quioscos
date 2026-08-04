@@ -163,14 +163,54 @@ export default function Step7({ onBack }: Step7Props) {
     serialId?: string;
     whatsappSent?: boolean;
     clientData?: Record<string, any>;
+    method?: string;
+    savedAt?: number;
   } | null>(() => {
     if (typeof window === 'undefined') return null;
     try {
       const cached = localStorage.getItem('kiosk_payment_link_sent');
-      if (cached) {
-        const parsed = JSON.parse(cached);
-        if (parsed?.orderId) return parsed;
-      }
+      if (!cached) return null;
+      const parsed = JSON.parse(cached);
+      if (!parsed?.orderId) return null;
+
+      // Este flag SOLO aplica a links de pago (PSE/Addi) de la venta EN CURSO.
+      // Antes se rehidrataba sin validar nada, así que un link no completado dejaba
+      // el botón "Reenviar link" pegado en ventas posteriores —incluso con datáfono—
+      // durante meses (caso Ses Palmira: links PSE de abril reaparecieron el 3-ago).
+      // Ante cualquier duda se descarta: perder el botón de reenvío es inocuo
+      // (se puede generar una orden nueva); usarlo con otra venta no lo es.
+      const discard = () => {
+        localStorage.removeItem('kiosk_payment_link_sent');
+        return null;
+      };
+
+      // 1. Entradas viejas (previas a este fix) no traen `method` -> descartar.
+      if (!parsed.method) return discard();
+
+      // 2. El método de pago actual debe ser el mismo con el que se envió el link.
+      const currentMethod = localStorage.getItem('checkout-payment-method');
+      if (currentMethod && parsed.method !== currentMethod) return discard();
+
+      // 3. Caducidad: un link vigente pertenece a la venta del momento, no a otro día.
+      const MAX_AGE_MS = 12 * 60 * 60 * 1000; // 12 h (el JWT del kiosco dura 24 h)
+      if (!parsed.savedAt || Date.now() - parsed.savedAt > MAX_AGE_MS) return discard();
+
+      // 4. Debe ser el MISMO cliente. Solo descarta con evidencia de discrepancia:
+      // si falta alguno de los dos correos, no se asume nada.
+      try {
+        const kioskClientRaw = localStorage.getItem('kiosk_client_id');
+        const currentEmail = kioskClientRaw ? JSON.parse(kioskClientRaw)?.email : null;
+        const flagEmail = parsed.clientData?.email || parsed.email;
+        if (
+          currentEmail &&
+          flagEmail &&
+          String(currentEmail).toLowerCase() !== String(flagEmail).toLowerCase()
+        ) {
+          return discard();
+        }
+      } catch { /* si no se puede comparar, se conserva */ }
+
+      return parsed;
     } catch { /* ignore */ }
     return null;
   });
@@ -2087,6 +2127,10 @@ export default function Step7({ onBack }: Step7Props) {
               serialId: kioskRes.serialId,
               whatsappSent: kioskRes.kioskWhatsappSent,
               clientData: kioskClientPse,
+              // Identidad del flag: permiten descartarlo si la venta siguiente
+              // usa otro método, es de otro día o de otro cliente.
+              method: 'pse',
+              savedAt: Date.now(),
             };
             setKioskPaymentLinkSent(pseKioskState);
             localStorage.setItem('kiosk_payment_link_sent', JSON.stringify(pseKioskState));
@@ -2183,6 +2227,9 @@ export default function Step7({ onBack }: Step7Props) {
               serialId: kioskRes.serialId,
               whatsappSent: kioskRes.kioskWhatsappSent,
               clientData: kioskClientAddi,
+              // Identidad del flag (ver comentario en el estado inicial).
+              method: 'addi',
+              savedAt: Date.now(),
             };
             setKioskPaymentLinkSent(addiKioskState);
             localStorage.setItem('kiosk_payment_link_sent', JSON.stringify(addiKioskState));

@@ -1,4 +1,4 @@
-const ALLOWED_DOMAINS = ["botopia.tech", "imagiq.com", "imagiq.co"];
+const ALLOWED_DOMAINS = ["lumintik.com", "imagiq.com", "imagiq.co"];
 
 export function isAllowedEmailDomain(email: string): boolean {
   const domain = email.split("@")[1]?.toLowerCase();
@@ -6,4 +6,4 @@ export function isAllowedEmailDomain(email: string): boolean {
 }
 
 export const DOMAIN_ERROR_MESSAGE =
-  "Solo se permiten correos con dominio @botopia.tech, @imagiq.com o @imagiq.co";
+  "Solo se permiten correos con dominio @lumintik.com, @imagiq.com o @imagiq.co";
