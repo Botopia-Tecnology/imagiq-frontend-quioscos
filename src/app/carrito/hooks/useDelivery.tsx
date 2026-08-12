@@ -529,11 +529,13 @@ export const useDelivery = (options?: { kioskMode?: boolean }) => {
     };
   }, []);
 
-  // Cargar direcciones del usuario (skip en kiosk - el asesor siempre agrega nueva)
+  // Cargar direcciones del usuario (skip en kiosk - el asesor siempre agrega nueva).
+  // Un invitado (rol 3) tampoco debe ver las direcciones guardadas de la cuenta.
   useEffect(() => {
     if (kioskMode) return;
-    const userInfo = safeGetLocalStorage<{ id?: string; email?: string }>("imagiq_user", {});
-    if (userInfo && (userInfo.id || userInfo.email)) {
+    const userInfo = safeGetLocalStorage<{ id?: string; email?: string; rol?: number; role?: number }>("imagiq_user", {});
+    const rol = typeof userInfo?.rol === "number" ? userInfo.rol : (typeof userInfo?.role === "number" ? userInfo.role : null);
+    if (rol === 2 && userInfo && (userInfo.id || userInfo.email)) {
       addressesService
         .getUserAddresses()
         .then((addresses: Address[]) => setAddresses(addresses))
@@ -541,6 +543,8 @@ export const useDelivery = (options?: { kioskMode?: boolean }) => {
           console.error("Error loading addresses:", error);
           setAddresses([]);
         });
+    } else {
+      setAddresses([]);
     }
   }, [kioskMode]);
 
@@ -682,7 +686,10 @@ export const useDelivery = (options?: { kioskMode?: boolean }) => {
   // Función para refrescar direcciones después de agregar una nueva
   const addAddress = async (newAddress?: Address): Promise<void> => {
     try {
-      let fetchedAddresses = await addressesService.getUserAddresses();
+      // Invitado (rol 3): NO traer las direcciones guardadas de la cuenta; solo la nueva.
+      const userInfo = safeGetLocalStorage<{ rol?: number; role?: number }>("imagiq_user", {});
+      const rol = typeof userInfo?.rol === "number" ? userInfo.rol : (typeof userInfo?.role === "number" ? userInfo.role : null);
+      let fetchedAddresses: Address[] = rol === 2 ? await addressesService.getUserAddresses() : [];
 
       if (newAddress && newAddress.id) {
         const found = fetchedAddresses.find(a => a.id === newAddress.id);
