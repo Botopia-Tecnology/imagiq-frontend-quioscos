@@ -268,11 +268,24 @@ export default function Step7({ onBack }: Step7Props) {
     console.log(`📡 [KioskSocket] Emitiendo watch_order { orderId: ${orderId} }`);
     socket.emit('watch_order', { orderId });
 
+    // Fallback robusto: re-emitir watch_order cada 5s. Al recibir watch_order el
+    // gateway consulta el estado REAL de la orden y reproduce 'order_approved'
+    // si ya está APPROVED (kiosk-realtime.gateway → kioskOrderStatus, genérico
+    // para PSE/Addi/datáfono). Cubre el caso en que el push en tiempo real no
+    // llegue: webhook que no alcanza el entorno (local), corte de red del
+    // kiosco, o un remount posterior a la emisión original.
+    const rewatch = setInterval(() => {
+      if (socket.connected) {
+        socket.emit('watch_order', { orderId });
+      }
+    }, 5000);
+
     const handler = (data: { orderId: string }) => {
       console.log(`🎉 [KioskSocket] Evento order_approved recibido:`, data);
       if (data.orderId === orderId) {
         console.log(`✅ [KioskSocket] Orden ${orderId} APROBADA! Mostrando modal.`);
         setShowOrderApprovedModal(true);
+        clearInterval(rewatch);
       }
     };
     socket.on('order_approved', handler);
@@ -281,6 +294,7 @@ export default function Step7({ onBack }: Step7Props) {
 
     return () => {
       console.log(`🔌 [KioskSocket] Limpiando WebSocket para orderId: ${orderId}`);
+      clearInterval(rewatch);
       socket.off('order_approved', handler);
       socket.off('connect');
       socket.off('disconnect');
@@ -3173,8 +3187,8 @@ export default function Step7({ onBack }: Step7Props) {
                     </div>
                   </div>
                   <div className="space-y-3">
-                    {products.map((product) => (
-                      <div key={product.id} className="flex items-center gap-3 p-3 bg-gray-50 rounded-lg">
+                    {products.map((product, index) => (
+                      <div key={`${product.sku ?? product.id}-${index}`} className="flex items-center gap-3 p-3 bg-gray-50 rounded-lg">
                         <div className="relative w-20 h-20 flex-shrink-0 bg-white rounded-lg overflow-hidden border border-gray-200">
                           {product.image ? (
                             <Image
@@ -3191,7 +3205,7 @@ export default function Step7({ onBack }: Step7Props) {
                           )}
                         </div>
                         <div className="flex-1 min-w-0">
-                          <p className="text-sm font-medium text-gray-900 truncate">{product.name}</p>
+                          <p className="text-sm font-medium text-gray-900 truncate">{product.displayName || product.desDetallada || product.name}</p>
                           <p className="text-xs text-gray-500">Cant: {product.quantity}</p>
                         </div>
                         <p className="text-sm font-bold text-gray-900 flex-shrink-0">
